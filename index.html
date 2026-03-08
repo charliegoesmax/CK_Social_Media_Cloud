@@ -134,6 +134,25 @@
 
   .edge-friend.faded, .edge-family.faded { opacity: 0.08; }
 
+  /* ── Family bridge paths ── */
+  .edge-bridge {
+    stroke: #e05252;
+    stroke-width: 3;
+    stroke-dasharray: 12 6;
+    fill: none;
+    opacity: 0.7;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .edge-bridge.hidden { display: none; }
+
+  .legend-line.bridge {
+    background: #e05252;
+    height: 3px;
+    border-radius: 1px;
+    border-top: none;
+  }
+
   /* ── Nodes ── */
   .node circle {
     stroke-width: 1.5;
@@ -202,14 +221,27 @@
     border-radius: 8px;
     padding: 12px 15px;
     font-size: 0.7rem;
-    pointer-events: none;
+    pointer-events: auto;
     opacity: 0;
     transition: opacity 0.15s;
-    max-width: 240px;
+    max-width: 260px;
     z-index: 100;
+    cursor: default;
   }
 
   #tooltip.visible { opacity: 1; }
+
+  #tooltip .tt-close {
+    position: absolute;
+    top: 7px; right: 9px;
+    font-size: 0.65rem;
+    color: var(--muted);
+    cursor: pointer;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 3px;
+  }
+  #tooltip .tt-close:hover { color: var(--text); background: var(--border); }
 
   #tooltip .tt-name {
     font-family: 'DM Serif Display', serif;
@@ -314,6 +346,9 @@
     </div>
     <div class="legend-item active" id="tog-family" onclick="toggleType('family')">
       <div class="legend-line family"></div><span>Family</span>
+    </div>
+    <div class="legend-item active" id="tog-bridge" onclick="toggleBridge()">
+      <div class="legend-line bridge" style="width:28px;height:3px;background:#e05252;border-radius:1px;"></div><span>Family Bridges</span>
     </div>
     <div class="legend-item" id="tog-search" onclick="toggleSearch()" title="Search (/)">
       <span>⌕ Search</span>
@@ -491,11 +526,106 @@ function parseMatrix(csv) {
 
 const { nodes, edges } = parseMatrix(RAW_CSV);
 
+// ── Family name assignment ────────────────────────────────────────────────────
+// Count how often each word appears as a surname candidate across all names
+const wordFreq = new Map();
+nodes.forEach(n => {
+  const parts = n.name.trim().split(/\s+/);
+  // Only look at the last 2 words as potential surnames
+  parts.slice(-2).forEach(w => wordFreq.set(w, (wordFreq.get(w) || 0) + 1));
+});
+
+nodes.forEach(n => {
+  const parts = n.name.trim().split(/\s+/);
+  if (parts.length === 1) { n.family = parts[0]; return; }
+  const last  = parts[parts.length - 1];
+  const prev  = parts[parts.length - 2];
+  // If both look like surnames (capitalised, not "Jr."), pick by frequency
+  const lastIsWord  = /^[A-Z]/.test(last) && last.length > 2;
+  const prevIsWord  = /^[A-Z]/.test(prev) && prev.length > 2;
+  if (prevIsWord && lastIsWord) {
+    n.family = (wordFreq.get(prev) || 0) >= (wordFreq.get(last) || 0) ? prev : last;
+  } else {
+    n.family = last;
+  }
+});
+
+// ── Build adjacency for BFS ──────────────────────────────────────────────────
+// (uses names; run before D3 mutates edge source/target to objects)
+const adjNames = new Map();
+nodes.forEach(n => adjNames.set(n.name, []));
+// We'll populate this after we have the edge list with resolved names
+edges.forEach(e => {
+  const s = typeof e.source === 'object' ? e.source.name : e.source;
+  const t = typeof e.target === 'object' ? e.target.name : e.target;
+  adjNames.get(s)?.push(t);
+  adjNames.get(t)?.push(s);
+});
+
+function bfsPath(startSet, targetSet) {
+  const visited = new Set(startSet);
+  const queue   = [...startSet].map(n => [n]);
+  while (queue.length) {
+    const path = queue.shift();
+    const curr = path[path.length - 1];
+    if (targetSet.has(curr)) return path;
+    for (const nb of (adjNames.get(curr) || [])) {
+      if (!visited.has(nb)) { visited.add(nb); queue.push([...path, nb]); }
+    }
+  }
+  return null;
+}
+
+// Group nodes by family
+const familyMap = new Map();
+nodes.forEach(n => {
+  if (!familyMap.has(n.family)) familyMap.set(n.family, []);
+  familyMap.get(n.family).push(n.name);
+});
+const families = [...familyMap.keys()];
+
+// Find shortest paths between all family pairs
+const familyPairs = [];
+for (let i = 0; i < families.length; i++) {
+  for (let j = i + 1; j < families.length; j++) {
+    const path = bfsPath(new Set(familyMap.get(families[i])), new Set(familyMap.get(families[j])));
+    if (path) familyPairs.push({ a: families[i], b: families[j], weight: path.length, path });
+  }
+}
+
+// Kruskal's MST to find minimal spanning bridges across all families
+familyPairs.sort((a, b) => a.weight - b.weight);
+const ufParent = new Map(families.map(f => [f, f]));
+function ufFind(x) {
+  if (ufParent.get(x) !== x) ufParent.set(x, ufFind(ufParent.get(x)));
+  return ufParent.get(x);
+}
+const mstPaths = [];
+for (const fp of familyPairs) {
+  const ra = ufFind(fp.a), rb = ufFind(fp.b);
+  if (ra !== rb) { ufParent.set(ra, rb); mstPaths.push(fp.path); }
+}
+
+// Unique node-pair segments that form the bridge overlay
+const bridgePairSet = new Set();
+const bridgeSegments = []; // { sourceName, targetName }
+mstPaths.forEach(path => {
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = [path[i], path[i+1]].sort().join('|||');
+    if (!bridgePairSet.has(key)) {
+      bridgePairSet.add(key);
+      bridgeSegments.push({ sourceName: path[i], targetName: path[i+1] });
+    }
+  }
+});
+
+
 // ── Stats ────────────────────────────────────────────────────────────────────
 const friendEdges = edges.filter(e => e.type === 'friend').length;
 const familyEdges = edges.filter(e => e.type === 'family').length;
 document.getElementById('stats').innerHTML =
   `<span><b>${nodes.length}</b> people</span>
+   <span><b>${families.length}</b> families</span>
    <span><b>${friendEdges}</b> friendships</span>
    <span><b>${familyEdges}</b> family ties</span>`;
 
@@ -533,6 +663,18 @@ const edgeGroup = container.append('g').attr('id','edges');
 const edgeSel = edgeGroup.selectAll('line').data(edges).enter().append('line')
   .attr('class', d => d.type === 'friend' ? 'edge-friend' : 'edge-family')
   .attr('data-type', d => d.type);
+
+// ── Bridge overlay (rendered above edges, below nodes) ───────────────────────
+// Resolve node objects now (simulation hasn't started yet so source/target are still names)
+const nodeByName = new Map(nodes.map(n => [n.name, n]));
+const bridgeData = bridgeSegments.map(s => ({
+  src: nodeByName.get(s.sourceName),
+  tgt: nodeByName.get(s.targetName)
+})).filter(d => d.src && d.tgt);
+
+const bridgeGroup = container.append('g').attr('id','bridges');
+const bridgeSel = bridgeGroup.selectAll('line').data(bridgeData).enter().append('line')
+  .attr('class','edge-bridge');
 
 // ── Relationship labels (family only) ────────────────────────────────────────
 const relGroup = container.append('g').attr('id','rel-labels');
@@ -581,6 +723,10 @@ simulation.on('tick', () => {
     .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
     .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
 
+  bridgeSel
+    .attr('x1', d => d.src.x).attr('y1', d => d.src.y)
+    .attr('x2', d => d.tgt.x).attr('y2', d => d.tgt.y);
+
   relSel.attr('transform', d => {
     const mx = (d.source.x + d.target.x) / 2;
     const my = (d.source.y + d.target.y) / 2;
@@ -604,14 +750,31 @@ simulation.on('tick', () => {
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 const tooltip = document.getElementById('tooltip');
 let ttTimer = null;
+let ttPinned = false; // true once user has interacted with the card
+
+function cancelHide() { clearTimeout(ttTimer); }
+function scheduleHide() {
+  ttTimer = setTimeout(() => {
+    tooltip.classList.remove('visible');
+    nodeSel.classed('faded', false);
+    edgeSel.classed('faded', false);
+    relSel.style('opacity', null);
+    ttPinned = false;
+  }, 180);
+}
+
+tooltip.addEventListener('mouseenter', cancelHide);
+tooltip.addEventListener('mouseleave', scheduleHide);
 
 function showTooltip(event, d) {
-  clearTimeout(ttTimer);
+  cancelHide();
   const conns = edges.filter(e => e.source.name === d.name || e.target.name === d.name);
   const fam   = conns.filter(e => e.type === 'family');
   const fri   = conns.filter(e => e.type === 'friend');
 
-  let html = `<div class="tt-name">${d.name}</div>`;
+  let html = `<div class="tt-close" onclick="forceHideTooltip()">✕</div>`;
+  html += `<div class="tt-name">${d.name}</div>`;
+  if (d.family) html += `<div class="tt-row"><span>Family</span><span>${d.family}</span></div>`;
   if (d.friendCount || d.familyCount) {
     html += `<div class="tt-row"><span>Friendships</span><span>${d.friendCount}</span></div>`;
     html += `<div class="tt-row"><span>Family ties</span><span>${d.familyCount}</span></div>`;
@@ -629,7 +792,7 @@ function showTooltip(event, d) {
 
   tooltip.innerHTML = html;
   tooltip.classList.add('visible');
-  moveTooltip(event);
+  positionTooltip(event.clientX, event.clientY);
 
   // Highlight connected nodes/edges
   const connNames = new Set(conns.map(e => e.source.name === d.name ? e.target.name : e.source.name));
@@ -639,23 +802,29 @@ function showTooltip(event, d) {
   relSel.style('opacity', e => (e.source.name === d.name || e.target.name === d.name) ? 1 : 0);
 }
 
-function moveTooltip(event) {
+function positionTooltip(cx, cy) {
   const wrap = document.getElementById('graph-wrap').getBoundingClientRect();
-  let x = event.clientX - wrap.left + 14;
-  let y = event.clientY - wrap.top  - 10;
-  if (x + 260 > wrap.width)  x = event.clientX - wrap.left - 260;
-  if (y + 200 > wrap.height) y = event.clientY - wrap.top  - 200;
+  let x = cx - wrap.left + 16;
+  let y = cy - wrap.top  - 10;
+  const tw = 270, th = 240;
+  if (x + tw > wrap.width)  x = cx - wrap.left - tw - 10;
+  if (y + th > wrap.height) y = cy - wrap.top  - th;
   tooltip.style.left = x + 'px';
   tooltip.style.top  = y + 'px';
 }
 
-function hideTooltip() {
-  ttTimer = setTimeout(() => {
-    tooltip.classList.remove('visible');
-    nodeSel.classed('faded', false);
-    edgeSel.classed('faded', false);
-    relSel.style('opacity', null);
-  }, 120);
+function moveTooltip(event) {
+  // Only reposition if tooltip not being hovered (to avoid jitter while reading)
+  if (!tooltip.matches(':hover')) positionTooltip(event.clientX, event.clientY);
+}
+
+function hideTooltip()    { scheduleHide(); }
+function forceHideTooltip() {
+  clearTimeout(ttTimer);
+  tooltip.classList.remove('visible');
+  nodeSel.classed('faded', false);
+  edgeSel.classed('faded', false);
+  relSel.style('opacity', null);
 }
 
 // ── Toggle edge types ─────────────────────────────────────────────────────────
@@ -665,6 +834,13 @@ function toggleType(type) {
   document.getElementById('tog-' + type).classList.toggle('active', visible[type]);
   edgeSel.filter(d => d.type === type).style('display', visible[type] ? null : 'none');
   relSel.filter(d => d.type === type).style('display', visible[type] ? null : 'none');
+}
+
+let bridgeVisible = true;
+function toggleBridge() {
+  bridgeVisible = !bridgeVisible;
+  document.getElementById('tog-bridge').classList.toggle('active', bridgeVisible);
+  bridgeSel.classed('hidden', !bridgeVisible);
 }
 
 // ── Search ─────────────────────────────────────────────────────────────────
