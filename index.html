@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Connection Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --text:     #e6edf3;
+    --muted:    #8b949e;
+    --accent:   #58a6ff;
+    --friend:   #3d8bcd;
+    --family:   #d4a843;
+    --none-col: #444c56;
+    --glow-f:   rgba(61,139,205,0.25);
+    --glow-fam: rgba(212,168,67,0.25);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+
+  header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.3rem;
+    letter-spacing: 0.02em;
+    color: var(--text);
+  }
+
+  header h1 span {
+    color: var(--family);
+    font-style: italic;
+  }
+
+  .legend {
+    display: flex;
+    gap: 18px;
+    margin-left: auto;
+    align-items: center;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+
+  .legend-item:hover { border-color: var(--border); background: rgba(255,255,255,0.04); }
+  .legend-item.active { color: var(--text); border-color: var(--border); }
+
+  .legend-line {
+    width: 28px;
+    height: 2px;
+    border-radius: 1px;
+  }
+
+  .legend-line.friend  { background: var(--friend); }
+  .legend-line.family  { background: var(--family); }
+  .legend-line.none    { background: var(--none-col); opacity: 0.4; }
+
+  .stats {
+    font-size: 0.65rem;
+    color: var(--muted);
+    display: flex;
+    gap: 14px;
+  }
+
+  .stats span b { color: var(--accent); }
+
+  #graph-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  svg {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+  }
+
+  svg:active { cursor: grabbing; }
+
+  /* ── Edges ── */
+  .edge-friend {
+    stroke: var(--friend);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 3;
+    fill: none;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+  }
+
+  .edge-family {
+    stroke: var(--family);
+    stroke-width: 1.8;
+    fill: none;
+    opacity: 0.75;
+    transition: opacity 0.2s;
+  }
+
+  .edge-friend.faded, .edge-family.faded { opacity: 0.08; }
+
+  /* ── Nodes ── */
+  .node circle {
+    stroke-width: 1.5;
+    cursor: pointer;
+    transition: r 0.15s;
+  }
+
+  .node circle.type-person {
+    fill: #1c2333;
+    stroke: var(--accent);
+  }
+
+  .node circle.connected-family {
+    stroke: var(--family);
+  }
+
+  .node circle.connected-both {
+    stroke: url(#bothGrad);
+  }
+
+  .node circle.highlighted {
+    fill: rgba(88, 166, 255, 0.15);
+    filter: drop-shadow(0 0 6px var(--accent));
+  }
+
+  .node text.node-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    fill: var(--muted);
+    text-anchor: middle;
+    pointer-events: none;
+    dominant-baseline: central;
+    transition: fill 0.15s;
+  }
+
+  .node:hover text.node-label,
+  .node.hovered text.node-label { fill: var(--text); }
+
+  .node.faded circle { opacity: 0.12; }
+  .node.faded text   { opacity: 0.08; }
+
+  /* ── Relationship labels ── */
+  .rel-label-bg {
+    fill: #1a1f2b;
+    stroke: var(--family);
+    stroke-width: 0.5;
+    rx: 3; ry: 3;
+    opacity: 0.9;
+  }
+
+  .rel-label-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7.5px;
+    fill: var(--family);
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+    opacity: 0.9;
+  }
+
+  /* ── Tooltip ── */
+  #tooltip {
+    position: absolute;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 15px;
+    font-size: 0.7rem;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    max-width: 240px;
+    z-index: 100;
+  }
+
+  #tooltip.visible { opacity: 1; }
+
+  #tooltip .tt-name {
+    font-family: 'DM Serif Display', serif;
+    font-size: 0.95rem;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+
+  #tooltip .tt-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  #tooltip .tt-row span:last-child { color: var(--text); }
+
+  #tooltip .tt-connections {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  #tooltip .tt-conn-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 0.65rem;
+  }
+
+  .dot-f   { width: 6px; height: 6px; border-radius: 50%; background: var(--friend); flex-shrink:0; }
+  .dot-fam { width: 6px; height: 6px; border-radius: 50%; background: var(--family); flex-shrink:0; }
+
+  #tooltip .tt-conn-item span { color: var(--muted); }
+  #tooltip .tt-conn-item b { color: var(--text); font-weight: 400; }
+
+  /* ── Controls ── */
+  .controls {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 10;
+  }
+
+  .ctrl-btn {
+    width: 32px; height: 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    line-height: 1;
+  }
+
+  .ctrl-btn:hover { background: var(--border); }
+
+  /* ── Search ── */
+  .search-wrap {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: none;
+  }
+
+  #search-input {
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    padding: 6px 12px;
+    border-radius: 20px;
+    width: 220px;
+    outline: none;
+  }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Connection <span>Network</span></h1>
+  <div class="stats" id="stats"></div>
+  <div class="legend">
+    <div class="legend-item active" id="tog-friend" onclick="toggleType('friend')">
+      <div class="legend-line friend"></div><span>Friend</span>
+    </div>
+    <div class="legend-item active" id="tog-family" onclick="toggleType('family')">
+      <div class="legend-line family"></div><span>Family</span>
+    </div>
+    <div class="legend-item" id="tog-search" onclick="toggleSearch()" title="Search (/)">
+      <span>⌕ Search</span>
+    </div>
+  </div>
+</header>
+
+<div id="graph-wrap">
+  <svg id="svg"></svg>
+  <div id="tooltip"></div>
+  <div class="controls">
+    <button class="ctrl-btn" onclick="zoom(1.3)" title="Zoom in">+</button>
+    <button class="ctrl-btn" onclick="zoom(0.77)" title="Zoom out">−</button>
+    <button class="ctrl-btn" onclick="resetView()" title="Reset view">⌂</button>
+  </div>
+  <div class="search-wrap" id="search-wrap">
+    <input id="search-input" placeholder="Search person…" oninput="doSearch(this.value)" onkeydown="if(e=>e.key==='Escape')toggleSearch()"/>
+  </div>
+</div>
+
+<script>
+// ── Raw matrix CSV ──────────────────────────────────────────────────────────
+const RAW_CSV = `,Pam Patience,Melissa Bunker Farnsworth,Ashton Farnsworth,Aubrey Farnsworth,Cindy Twiggs,Elizabeth Brown Solomon,Isaac Farnsworth,Summer Farnsworth Pederson,Melody Stapley,Haylie Farnsworth,Riley Farnsworth,David Farnsworth,Ross Farnsworth,Scot McCoy,Tom Farnsworth,Meg Farnsworth,Joe Farnsworth,Alex Farnsworth,Landon Farnsworth,Stephen Loehr,Josh Kirk,Cameron Farnsworth,Isaac Farnsworth,Cole Farnsworth,Carrlee McCoy,Heidi Farnsworth,Jamey Linch,Joe Farnsworth Jr.,Clint Farnsworth,Mallory Frost,Brigham Farnsworth,Sharanette Seamons Farnsworth,Beth Farnsworth Coons,April Standring,Lacey Hancock,Jessica Farnsworth,Jimmer Standring,Aubrey Farnsworth Bonds,Wesley Massey,Julie Farnsworth Ashby,Janet Farnsworth Turk,Todd Farnsworth,Robert Farnsworth,Charles Maxwell,Landon Farnsworth,Tiffany Farnsworth Passey,Terryl Farnsworth,Brittany Marie Nguyen,Julie Whitlock Farnsworth,Brett Paxman,Rachel Richins,Adam Farnsworth,Austin Farnsworth,Kylie R. Bowyer,Derek Solomon,Cosette Shill,Sophie Collins,Benjamin Twiggs Hogen,Jessica Twiggs,Cindy Twiggs,Gisele Bethea Farnsworth,Brooke Farnsworth,JT Romney,Dave Farnsworth,Elizabeth Linebaugh Romney,Marci Farnsworth,Marty Farnsworth
+Pam Patience,,x,x,x,x,x,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,x,,,,,,,,,
+Melissa Bunker Farnsworth,,,,,,,son,mother,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Ashton Farnsworth,,,,x,,,,x,,x,x,,x,x,x,,x,x,x,,x,x,x,,x,x,,cousin,,,cousin,,,,,,,,x,aunt,,x,x,x,,,,,,,,,,x,x,x,,x,,x,,,,,,,
+Aubrey Farnsworth,,x,x,,,,,x,,x,x,,,,,x,x,x,x,,,x,x,x,,,,x,,,x,x,x,,,x,,x,,x,x,x,,,,,,,,,,,,,,,,,,,x,x,x,x,x,x,x
+Cindy Twiggs,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Elizabeth Brown Solomon,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Isaac Farnsworth,,mother,,,,,,sibling,,,,,,,,sibling,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Summer Farnsworth Pederson,,mother,,,,,sibling,,,,,,,,,sibling,,,,,,,,,,,,,,,,,aunt,cousin,,,,,,,aunt,,,,,,,,,,,,,,,sibling,sibling,,,,,,,,,,
+Melody Stapley,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Haylie Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,aunt,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Riley Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,brother,,,brother,mother,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+David Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Ross Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Scot McCoy,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Tom Farnsworth,,,,,,,,,mother-in-law,,,,,,,daughter,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Meg Farnsworth,,,,,,,,sibling,,,,,,,,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Joe Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,father,,,father,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Alex Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Landon Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Stephen Loehr,,,,,,,,,,,,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Josh Kirk,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Cameron Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Isaac Farnsworth,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Cole Farnsworth,,mother,,,,,,sibling,,,,,,,,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,spouse,,,,,,
+Carrlee McCoy,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Heidi Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Jamey Linch,,,,,,,,,,,,,,,,,,,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Joe Farnsworth Jr.,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,brother,mother,aunt,,,spouse,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Clint Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,brother,,,,mother,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Mallory Frost,,,,,,,,,,,,,,,,,,,,,,,,,,,,sister,,,sister,mother,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Brigham Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,brother,,,,mother,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Sharanette Seamons Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,mother,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Beth Farnsworth Coons,,,,,,,,aunt,,,,,,,,,,,,,,,,,,,,aunt,,,,,,,,,aunt,,,x,,,,,,,,,,,,,,,,,,,,,,,,,,,
+April Standring,,,,,,,,cousin,,,,,,,,,,,,,,,,,,,,cousin,,,,,,,,,,,,x,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Lacey Hancock,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,cousin,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Jessica Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,spouse,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Jimmer Standring,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,aunt,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Aubrey Farnsworth Bonds,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Wesley Massey,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Julie Farnsworth Ashby,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Janet Farnsworth Turk,,,,,,,,aunt,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,x,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Todd Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Robert Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Charles Maxwell,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Landon Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,x,,,,,,,,,,,,,,,,,,,,,
+Tiffany Farnsworth Passey,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,x,,,,,,,,,,,,,,,,,,,,,,
+Terryl Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,sibling,mother,cousin,sister-in-law,,,,,,,,,,,,,,,,
+Brittany Marie Nguyen,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,
+Julie Whitlock Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,mother,,,,,,,,,,,,,,,,,,,,
+Brett Paxman,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,cousin,,,,,,,,,,,,,,,,,,,,
+Rachel Richins,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,sister-in-law,,,,,,,,,,,,,,,,,,,,
+Adam Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Austin Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Kylie R. Bowyer,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Derek Solomon,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Cosette Shill,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Sophie Collins,,,,,,,,sibling,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,sibling,,,,,,,,,,,
+Benjamin Twiggs Hogen,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,x,,,,,,,,
+Jessica Twiggs,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,x,,,,,,,,,
+Cindy Twiggs,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Gisele Bethea Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Brooke Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+JT Romney,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Dave Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Elizabeth Linebaugh Romney,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Marci Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Marty Farnsworth,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,`;
+
+// ── Parse matrix ────────────────────────────────────────────────────────────
+function parseMatrix(csv) {
+  const lines = csv.trim().split('\n');
+  // Parse header row → column names
+  const header = lines[0].split(',');
+  const colNames = header.slice(1); // skip leading empty cell
+
+  const nodeSet = new Map(); // canonical name → node object
+  const edgeMap = new Map(); // "nameA|||nameB" → strongest relationship
+
+  function canonical(name) {
+    return name.trim();
+  }
+
+  // Collect all unique names (merge duplicates by name)
+  colNames.forEach(n => {
+    const c = canonical(n);
+    if (c && !nodeSet.has(c)) nodeSet.set(c, { name: c, friendCount: 0, familyCount: 0 });
+  });
+  for (let i = 1; i < lines.length; i++) {
+    const rowName = canonical(lines[i].split(',')[0]);
+    if (rowName && !nodeSet.has(rowName)) nodeSet.set(rowName, { name: rowName, friendCount: 0, familyCount: 0 });
+  }
+
+  // Build edges — deduplicate using canonical sorted pair key
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split(',');
+    const rowName = canonical(cells[0]);
+    if (!rowName) continue;
+
+    for (let j = 1; j < cells.length; j++) {
+      const val = cells[j].trim();
+      if (!val) continue;
+
+      const colName = canonical(colNames[j - 1]);
+      if (!colName || colName === rowName) continue;
+
+      // Canonical key: alphabetically sorted pair
+      const pair = [rowName, colName].sort();
+      const key = pair[0] + '|||' + pair[1];
+
+      if (!edgeMap.has(key)) {
+        edgeMap.set(key, { source: pair[0], target: pair[1], rel: val, type: val === 'x' ? 'friend' : 'family' });
+      } else {
+        // Prefer family over friend
+        const existing = edgeMap.get(key);
+        if (val !== 'x' && existing.type === 'friend') {
+          edgeMap.set(key, { source: pair[0], target: pair[1], rel: val, type: 'family' });
+        }
+        // If both are family phrases, combine if different
+        if (val !== 'x' && existing.type === 'family' && existing.rel !== val) {
+          edgeMap.set(key, { ...existing, rel: existing.rel + ' / ' + val });
+        }
+      }
+    }
+  }
+
+  const nodes = Array.from(nodeSet.values());
+  const edges = Array.from(edgeMap.values());
+
+  // Count connections per node
+  edges.forEach(e => {
+    const src = nodeSet.get(e.source);
+    const tgt = nodeSet.get(e.target);
+    if (e.type === 'friend') {
+      if (src) src.friendCount++;
+      if (tgt) tgt.friendCount++;
+    } else {
+      if (src) src.familyCount++;
+      if (tgt) tgt.familyCount++;
+    }
+  });
+
+  // Determine dominant connection type for node stroke color
+  nodes.forEach(n => {
+    if (n.familyCount > 0 && n.friendCount > 0) n.connType = 'both';
+    else if (n.familyCount > 0) n.connType = 'family';
+    else if (n.friendCount > 0) n.connType = 'friend';
+    else n.connType = 'none';
+  });
+
+  return { nodes, edges };
+}
+
+const { nodes, edges } = parseMatrix(RAW_CSV);
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+const friendEdges = edges.filter(e => e.type === 'friend').length;
+const familyEdges = edges.filter(e => e.type === 'family').length;
+document.getElementById('stats').innerHTML =
+  `<span><b>${nodes.length}</b> people</span>
+   <span><b>${friendEdges}</b> friendships</span>
+   <span><b>${familyEdges}</b> family ties</span>`;
+
+// ── D3 Setup ─────────────────────────────────────────────────────────────────
+const svgEl = document.getElementById('svg');
+const svg   = d3.select(svgEl);
+const { width, height } = svgEl.getBoundingClientRect();
+
+// Gradient for "both" type nodes
+const defs = svg.append('defs');
+const lg = defs.append('linearGradient').attr('id','bothGrad').attr('x1','0%').attr('y1','0%').attr('x2','100%').attr('y2','100%');
+lg.append('stop').attr('offset','0%').attr('stop-color','#58a6ff');
+lg.append('stop').attr('offset','100%').attr('stop-color','#d4a843');
+
+// Arrow markers
+defs.append('marker').attr('id','arrow-family')
+  .attr('viewBox','0 -5 10 10').attr('refX',18).attr('refY',0)
+  .attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+  .append('path').attr('d','M0,-5L10,0L0,5').attr('fill','#d4a843').attr('opacity','0.6');
+
+const container = svg.append('g').attr('id','container');
+const zoomBehavior = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => container.attr('transform', e.transform));
+svg.call(zoomBehavior);
+
+// ── Simulation ───────────────────────────────────────────────────────────────
+const simulation = d3.forceSimulation(nodes)
+  .force('link', d3.forceLink(edges).id(d => d.name).distance(d => d.type === 'family' ? 120 : 160))
+  .force('charge', d3.forceManyBody().strength(-280))
+  .force('center', d3.forceCenter(width / 2, height / 2))
+  .force('collision', d3.forceCollide(18))
+  .alphaTarget(0);
+
+// ── Render edges ─────────────────────────────────────────────────────────────
+const edgeGroup = container.append('g').attr('id','edges');
+const edgeSel = edgeGroup.selectAll('line').data(edges).enter().append('line')
+  .attr('class', d => d.type === 'friend' ? 'edge-friend' : 'edge-family')
+  .attr('data-type', d => d.type);
+
+// ── Relationship labels (family only) ────────────────────────────────────────
+const relGroup = container.append('g').attr('id','rel-labels');
+const relData  = edges.filter(e => e.type === 'family');
+const relSel   = relGroup.selectAll('g').data(relData).enter().append('g').attr('class','rel-label');
+relSel.append('rect').attr('class','rel-label-bg').attr('rx',3).attr('ry',3);
+relSel.append('text').attr('class','rel-label-text').attr('dy','0.35em').text(d => d.rel);
+
+// ── Render nodes ─────────────────────────────────────────────────────────────
+const nodeGroup = container.append('g').attr('id','nodes');
+const nodeSel = nodeGroup.selectAll('g').data(nodes).enter().append('g')
+  .attr('class', 'node')
+  .attr('data-name', d => d.name)
+  .call(d3.drag()
+    .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+    .on('drag',  (event, d) => { d.fx = event.x; d.fy = event.y; })
+    .on('end',   (event, d) => { if (!event.active) simulation.alphaTarget(0); }))
+  .on('dblclick', (event, d) => { event.stopPropagation(); d.fx = null; d.fy = null; })
+  .on('mouseover', showTooltip)
+  .on('mousemove', moveTooltip)
+  .on('mouseout',  hideTooltip);
+
+nodeSel.append('circle')
+  .attr('r', d => 7 + (d.friendCount + d.familyCount) * 0.5)
+  .attr('class', d => {
+    let c = 'type-person';
+    if (d.connType === 'family') c += ' connected-family';
+    else if (d.connType === 'both') c += ' connected-both';
+    return c;
+  })
+  .style('stroke', d => {
+    if (d.connType === 'both') return 'url(#bothGrad)';
+    if (d.connType === 'family') return '#d4a843';
+    if (d.connType === 'friend') return '#3d8bcd';
+    return '#444c56';
+  });
+
+nodeSel.append('text')
+  .attr('class','node-label')
+  .attr('y', d => -(8 + (d.friendCount + d.familyCount) * 0.5) - 4)
+  .text(d => d.name);
+
+// ── Simulation tick ───────────────────────────────────────────────────────────
+simulation.on('tick', () => {
+  edgeSel
+    .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+
+  relSel.attr('transform', d => {
+    const mx = (d.source.x + d.target.x) / 2;
+    const my = (d.source.y + d.target.y) / 2;
+    return `translate(${mx},${my})`;
+  });
+
+  relSel.each(function() {
+    const g    = d3.select(this);
+    const text = g.select('text');
+    try {
+      const bb = text.node().getBBox();
+      g.select('rect')
+        .attr('x', bb.x - 3).attr('y', bb.y - 2)
+        .attr('width', bb.width + 6).attr('height', bb.height + 4);
+    } catch(e) {}
+  });
+
+  nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+});
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+const tooltip = document.getElementById('tooltip');
+let ttTimer = null;
+
+function showTooltip(event, d) {
+  clearTimeout(ttTimer);
+  const conns = edges.filter(e => e.source.name === d.name || e.target.name === d.name);
+  const fam   = conns.filter(e => e.type === 'family');
+  const fri   = conns.filter(e => e.type === 'friend');
+
+  let html = `<div class="tt-name">${d.name}</div>`;
+  if (d.friendCount || d.familyCount) {
+    html += `<div class="tt-row"><span>Friendships</span><span>${d.friendCount}</span></div>`;
+    html += `<div class="tt-row"><span>Family ties</span><span>${d.familyCount}</span></div>`;
+  }
+
+  const allConns = [...fam.map(e => {
+    const other = e.source.name === d.name ? e.target.name : e.source.name;
+    return `<div class="tt-conn-item"><div class="dot-fam"></div><b>${other}</b><span>${e.rel}</span></div>`;
+  }), ...fri.map(e => {
+    const other = e.source.name === d.name ? e.target.name : e.source.name;
+    return `<div class="tt-conn-item"><div class="dot-f"></div><b>${other}</b></div>`;
+  })];
+
+  if (allConns.length) html += `<div class="tt-connections">${allConns.join('')}</div>`;
+
+  tooltip.innerHTML = html;
+  tooltip.classList.add('visible');
+  moveTooltip(event);
+
+  // Highlight connected nodes/edges
+  const connNames = new Set(conns.map(e => e.source.name === d.name ? e.target.name : e.source.name));
+  connNames.add(d.name);
+  nodeSel.classed('faded', n => !connNames.has(n.name));
+  edgeSel.classed('faded', e => e.source.name !== d.name && e.target.name !== d.name);
+  relSel.style('opacity', e => (e.source.name === d.name || e.target.name === d.name) ? 1 : 0);
+}
+
+function moveTooltip(event) {
+  const wrap = document.getElementById('graph-wrap').getBoundingClientRect();
+  let x = event.clientX - wrap.left + 14;
+  let y = event.clientY - wrap.top  - 10;
+  if (x + 260 > wrap.width)  x = event.clientX - wrap.left - 260;
+  if (y + 200 > wrap.height) y = event.clientY - wrap.top  - 200;
+  tooltip.style.left = x + 'px';
+  tooltip.style.top  = y + 'px';
+}
+
+function hideTooltip() {
+  ttTimer = setTimeout(() => {
+    tooltip.classList.remove('visible');
+    nodeSel.classed('faded', false);
+    edgeSel.classed('faded', false);
+    relSel.style('opacity', null);
+  }, 120);
+}
+
+// ── Toggle edge types ─────────────────────────────────────────────────────────
+const visible = { friend: true, family: true };
+function toggleType(type) {
+  visible[type] = !visible[type];
+  document.getElementById('tog-' + type).classList.toggle('active', visible[type]);
+  edgeSel.filter(d => d.type === type).style('display', visible[type] ? null : 'none');
+  relSel.filter(d => d.type === type).style('display', visible[type] ? null : 'none');
+}
+
+// ── Search ─────────────────────────────────────────────────────────────────
+function toggleSearch() {
+  const w = document.getElementById('search-wrap');
+  const open = w.style.display === 'block';
+  w.style.display = open ? 'none' : 'block';
+  if (!open) { document.getElementById('search-input').focus(); }
+  else { doSearch(''); document.getElementById('search-input').value = ''; }
+}
+
+function doSearch(q) {
+  if (!q) { nodeSel.classed('faded', false); edgeSel.classed('faded', false); relSel.style('opacity', null); return; }
+  const lq = q.toLowerCase();
+  const match = nodes.filter(n => n.name.toLowerCase().includes(lq));
+  if (!match.length) return;
+  const matchNames = new Set(match.map(n => n.name));
+  // Also include their connections
+  edges.forEach(e => {
+    if (matchNames.has(e.source.name || e.source)) matchNames.add(e.target.name || e.target);
+    if (matchNames.has(e.target.name || e.target)) matchNames.add(e.source.name || e.source);
+  });
+  nodeSel.classed('faded', n => !matchNames.has(n.name));
+  edgeSel.classed('faded', e => !matchNames.has(e.source.name) && !matchNames.has(e.target.name));
+  relSel.style('opacity', e => (matchNames.has(e.source.name) || matchNames.has(e.target.name)) ? 1 : 0);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === '/') { e.preventDefault(); toggleSearch(); }
+  if (e.key === 'Escape') { 
+    const w = document.getElementById('search-wrap');
+    if (w.style.display === 'block') { toggleSearch(); }
+  }
+});
+
+// ── Zoom controls ─────────────────────────────────────────────────────────────
+function zoom(factor) {
+  svg.transition().duration(300).call(zoomBehavior.scaleBy, factor);
+}
+function resetView() {
+  svg.transition().duration(500).call(zoomBehavior.transform, d3.zoomIdentity.translate(width/2, height/2).scale(0.9).translate(-width/2, -height/2));
+}
+</script>
+</body>
+</html>
