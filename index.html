@@ -194,6 +194,25 @@
   .node.faded circle { opacity: 0.12; }
   .node.faded text   { opacity: 0.08; }
 
+  /* ── Sibling group bars ── */
+  .sibling-group { cursor: grab; }
+  .sibling-group:active { cursor: grabbing; }
+
+  .sibling-bar-line {
+    stroke: #3a4150;
+    stroke-width: 2;
+    fill: none;
+  }
+
+  .sibling-tick {
+    stroke: #3a4150;
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+    fill: none;
+  }
+
+  .sib-member { cursor: pointer; }
+
   /* ── Relationship labels ── */
   .rel-label-bg {
     fill: #1a1f2b;
@@ -526,363 +545,397 @@ function parseMatrix(csv) {
 
 const { nodes, edges } = parseMatrix(RAW_CSV);
 
+// ── Constants ────────────────────────────────────────────────────────────────
+const SGROUP_W = 68; // px spacing between siblings on a bar
+
 // ── Family name assignment ────────────────────────────────────────────────────
-// Count how often each word appears as a surname candidate across all names
 const wordFreq = new Map();
 nodes.forEach(n => {
-  const parts = n.name.trim().split(/\s+/);
-  // Only look at the last 2 words as potential surnames
-  parts.slice(-2).forEach(w => wordFreq.set(w, (wordFreq.get(w) || 0) + 1));
+  n.name.trim().split(/\s+/).slice(-2).forEach(w => wordFreq.set(w, (wordFreq.get(w)||0)+1));
 });
-
 nodes.forEach(n => {
   const parts = n.name.trim().split(/\s+/);
   if (parts.length === 1) { n.family = parts[0]; return; }
-  const last  = parts[parts.length - 1];
-  const prev  = parts[parts.length - 2];
-  // If both look like surnames (capitalised, not "Jr."), pick by frequency
-  const lastIsWord  = /^[A-Z]/.test(last) && last.length > 2;
-  const prevIsWord  = /^[A-Z]/.test(prev) && prev.length > 2;
-  if (prevIsWord && lastIsWord) {
-    n.family = (wordFreq.get(prev) || 0) >= (wordFreq.get(last) || 0) ? prev : last;
-  } else {
-    n.family = last;
-  }
+  const last = parts[parts.length-1], prev = parts[parts.length-2];
+  const lastOk = /^[A-Z]/.test(last) && last.length > 2;
+  const prevOk = /^[A-Z]/.test(prev) && prev.length > 2;
+  n.family = (prevOk && lastOk)
+    ? ((wordFreq.get(prev)||0) >= (wordFreq.get(last)||0) ? prev : last)
+    : last;
 });
 
-// ── Build adjacency for BFS ──────────────────────────────────────────────────
-// (uses names; run before D3 mutates edge source/target to objects)
+// ── BFS adjacency (string-based, before D3 mutates edges) ────────────────────
 const adjNames = new Map();
 nodes.forEach(n => adjNames.set(n.name, []));
-// We'll populate this after we have the edge list with resolved names
 edges.forEach(e => {
-  const s = typeof e.source === 'object' ? e.source.name : e.source;
-  const t = typeof e.target === 'object' ? e.target.name : e.target;
-  adjNames.get(s)?.push(t);
-  adjNames.get(t)?.push(s);
+  adjNames.get(e.source)?.push(e.target);
+  adjNames.get(e.target)?.push(e.source);
 });
 
 function bfsPath(startSet, targetSet) {
   const visited = new Set(startSet);
-  const queue   = [...startSet].map(n => [n]);
+  const queue = [...startSet].map(n => [n]);
   while (queue.length) {
     const path = queue.shift();
-    const curr = path[path.length - 1];
+    const curr = path[path.length-1];
     if (targetSet.has(curr)) return path;
-    for (const nb of (adjNames.get(curr) || [])) {
+    for (const nb of (adjNames.get(curr)||[])) {
       if (!visited.has(nb)) { visited.add(nb); queue.push([...path, nb]); }
     }
   }
   return null;
 }
 
-// Group nodes by family
+// ── Family bridge MST ────────────────────────────────────────────────────────
 const familyMap = new Map();
-nodes.forEach(n => {
-  if (!familyMap.has(n.family)) familyMap.set(n.family, []);
-  familyMap.get(n.family).push(n.name);
-});
+nodes.forEach(n => { if (!familyMap.has(n.family)) familyMap.set(n.family,[]); familyMap.get(n.family).push(n.name); });
 const families = [...familyMap.keys()];
 
-// Find shortest paths between all family pairs
 const familyPairs = [];
-for (let i = 0; i < families.length; i++) {
-  for (let j = i + 1; j < families.length; j++) {
+for (let i = 0; i < families.length; i++)
+  for (let j = i+1; j < families.length; j++) {
     const path = bfsPath(new Set(familyMap.get(families[i])), new Set(familyMap.get(families[j])));
     if (path) familyPairs.push({ a: families[i], b: families[j], weight: path.length, path });
   }
-}
-
-// Kruskal's MST to find minimal spanning bridges across all families
-familyPairs.sort((a, b) => a.weight - b.weight);
-const ufParent = new Map(families.map(f => [f, f]));
-function ufFind(x) {
-  if (ufParent.get(x) !== x) ufParent.set(x, ufFind(ufParent.get(x)));
-  return ufParent.get(x);
-}
+familyPairs.sort((a,b) => a.weight - b.weight);
+const mstP = new Map(families.map(f=>[f,f]));
+function mstFind(x) { if (mstP.get(x)!==x) mstP.set(x,mstFind(mstP.get(x))); return mstP.get(x); }
 const mstPaths = [];
 for (const fp of familyPairs) {
-  const ra = ufFind(fp.a), rb = ufFind(fp.b);
-  if (ra !== rb) { ufParent.set(ra, rb); mstPaths.push(fp.path); }
+  const ra = mstFind(fp.a), rb = mstFind(fp.b);
+  if (ra !== rb) { mstP.set(ra,rb); mstPaths.push(fp.path); }
 }
-
-// Unique node-pair segments that form the bridge overlay
 const bridgePairSet = new Set();
-const bridgeSegments = []; // { sourceName, targetName }
+const bridgeSegments = [];
 mstPaths.forEach(path => {
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = [path[i], path[i+1]].sort().join('|||');
-    if (!bridgePairSet.has(key)) {
-      bridgePairSet.add(key);
-      bridgeSegments.push({ sourceName: path[i], targetName: path[i+1] });
-    }
+  for (let i = 0; i < path.length-1; i++) {
+    const key = [path[i],path[i+1]].sort().join('|||');
+    if (!bridgePairSet.has(key)) { bridgePairSet.add(key); bridgeSegments.push({ sN: path[i], tN: path[i+1] }); }
   }
 });
 
+// ── Sibling group detection (union-find) ─────────────────────────────────────
+const SIB_RELS = new Set(['sibling','brother','sister']);
+const sibP = new Map(nodes.map(n=>[n.name,n.name]));
+function sibFind(x) { if (sibP.get(x)!==x) sibP.set(x,sibFind(sibP.get(x))); return sibP.get(x); }
+edges.forEach(e => {
+  if (SIB_RELS.has(e.rel?.toLowerCase())) {
+    const rA=sibFind(e.source), rB=sibFind(e.target);
+    if (rA!==rB) sibP.set(rA,rB);
+  }
+});
 
-// ── Stats ────────────────────────────────────────────────────────────────────
-const friendEdges = edges.filter(e => e.type === 'friend').length;
-const familyEdges = edges.filter(e => e.type === 'family').length;
+const rawSibGroups = new Map();
+nodes.forEach(n => {
+  const rep = sibFind(n.name);
+  if (!rawSibGroups.has(rep)) rawSibGroups.set(rep,[]);
+  rawSibGroups.get(rep).push(n);
+});
+
+// Build sim nodes: one anchor per multi-sibling group, person node for singletons
+const simNodes = [];
+const nodeToSim = new Map();  // person name → sim node (anchor or self)
+const nodeByName = new Map(nodes.map(n=>[n.name,n]));
+let gid = 0;
+
+rawSibGroups.forEach(members => {
+  if (members.length >= 2) {
+    const ax = 200 + Math.random()*500, ay = 100 + Math.random()*400;
+    const anchor = { name:'__grp_'+(gid++), isGroup:true, members, x:ax, y:ay, vx:0, vy:0 };
+    simNodes.push(anchor);
+    members.forEach((m,i) => {
+      nodeToSim.set(m.name, anchor);
+      m.x = ax + (i-(members.length-1)/2)*SGROUP_W;
+      m.y = ay;
+    });
+  } else {
+    const n = members[0];
+    n.x = n.x || 200+Math.random()*500;
+    n.y = n.y || 100+Math.random()*400;
+    simNodes.push(n);
+    nodeToSim.set(n.name, n);
+  }
+});
+
+// ── Raw edges for rendering (string names, no sib-sib) ───────────────────────
+const rawEdges = edges
+  .filter(e => !SIB_RELS.has(e.rel?.toLowerCase()))
+  .map(e => ({ type:e.type, rel:e.rel, srcName:e.source, tgtName:e.target }));
+
+// ── Sim links: anchor-level, deduplicated ────────────────────────────────────
+const simLinkKeys = new Set();
+const simLinks = [];
+rawEdges.forEach(e => {
+  const ss = nodeToSim.get(e.srcName), st = nodeToSim.get(e.tgtName);
+  if (!ss||!st||ss===st) return;
+  const key = [ss.name,st.name].sort().join('|||');
+  if (!simLinkKeys.has(key)) { simLinkKeys.add(key); simLinks.push({source:ss.name,target:st.name}); }
+});
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+const friendEdges = edges.filter(e=>e.type==='friend').length;
+const familyEdges = edges.filter(e=>e.type==='family').length;
+const sibGroupCount = [...rawSibGroups.values()].filter(m=>m.length>=2).length;
 document.getElementById('stats').innerHTML =
   `<span><b>${nodes.length}</b> people</span>
    <span><b>${families.length}</b> families</span>
-   <span><b>${friendEdges}</b> friendships</span>
-   <span><b>${familyEdges}</b> family ties</span>`;
+   <span><b>${sibGroupCount}</b> sibling groups</span>
+   <span><b>${friendEdges}</b> friendships</span>`;
 
-// ── D3 Setup ─────────────────────────────────────────────────────────────────
+// ── D3 Setup ──────────────────────────────────────────────────────────────────
 const svgEl = document.getElementById('svg');
 const svg   = d3.select(svgEl);
 const { width, height } = svgEl.getBoundingClientRect();
 
-// Gradient for "both" type nodes
 const defs = svg.append('defs');
 const lg = defs.append('linearGradient').attr('id','bothGrad').attr('x1','0%').attr('y1','0%').attr('x2','100%').attr('y2','100%');
 lg.append('stop').attr('offset','0%').attr('stop-color','#58a6ff');
 lg.append('stop').attr('offset','100%').attr('stop-color','#d4a843');
 
-// Arrow markers
-defs.append('marker').attr('id','arrow-family')
-  .attr('viewBox','0 -5 10 10').attr('refX',18).attr('refY',0)
-  .attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
-  .append('path').attr('d','M0,-5L10,0L0,5').attr('fill','#d4a843').attr('opacity','0.6');
-
 const container = svg.append('g').attr('id','container');
-const zoomBehavior = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => container.attr('transform', e.transform));
+const zoomBehavior = d3.zoom().scaleExtent([0.1,4]).on('zoom', e => container.attr('transform',e.transform));
 svg.call(zoomBehavior);
 
-// ── Simulation ───────────────────────────────────────────────────────────────
-const simulation = d3.forceSimulation(nodes)
-  .force('link', d3.forceLink(edges).id(d => d.name).distance(d => d.type === 'family' ? 120 : 160))
-  .force('charge', d3.forceManyBody().strength(-280))
-  .force('center', d3.forceCenter(width / 2, height / 2))
-  .force('collision', d3.forceCollide(18))
+// ── Simulation ────────────────────────────────────────────────────────────────
+const simulation = d3.forceSimulation(simNodes)
+  .force('link', d3.forceLink(simLinks).id(d=>d.name).distance(130))
+  .force('charge', d3.forceManyBody().strength(-320))
+  .force('center', d3.forceCenter(width/2, height/2))
+  .force('collision', d3.forceCollide(d => d.isGroup ? ((d.members.length-1)/2*SGROUP_W+28) : 22))
   .alphaTarget(0);
 
-// ── Render edges ─────────────────────────────────────────────────────────────
-const edgeGroup = container.append('g').attr('id','edges');
-const edgeSel = edgeGroup.selectAll('line').data(edges).enter().append('line')
-  .attr('class', d => d.type === 'friend' ? 'edge-friend' : 'edge-family')
-  .attr('data-type', d => d.type);
+// ── Render edges (individual positions) ──────────────────────────────────────
+const edgeLayer = container.append('g').attr('id','edges');
+const edgeSel = edgeLayer.selectAll('line').data(rawEdges).enter().append('line')
+  .attr('class', d => d.type==='friend' ? 'edge-friend' : 'edge-family');
 
-// ── Bridge overlay (rendered above edges, below nodes) ───────────────────────
-// Resolve node objects now (simulation hasn't started yet so source/target are still names)
-const nodeByName = new Map(nodes.map(n => [n.name, n]));
-const bridgeData = bridgeSegments.map(s => ({
-  src: nodeByName.get(s.sourceName),
-  tgt: nodeByName.get(s.targetName)
-})).filter(d => d.src && d.tgt);
-
-const bridgeGroup = container.append('g').attr('id','bridges');
-const bridgeSel = bridgeGroup.selectAll('line').data(bridgeData).enter().append('line')
+// ── Bridge overlay ────────────────────────────────────────────────────────────
+const bridgeData = bridgeSegments.map(s=>({
+  src: nodeByName.get(s.sN), tgt: nodeByName.get(s.tN)
+})).filter(d=>d.src&&d.tgt);
+const bridgeGroupEl = container.append('g').attr('id','bridges');
+const bridgeSel = bridgeGroupEl.selectAll('line').data(bridgeData).enter().append('line')
   .attr('class','edge-bridge');
 
-// ── Relationship labels (family only) ────────────────────────────────────────
-const relGroup = container.append('g').attr('id','rel-labels');
-const relData  = edges.filter(e => e.type === 'family');
-const relSel   = relGroup.selectAll('g').data(relData).enter().append('g').attr('class','rel-label');
+// ── Relationship labels ───────────────────────────────────────────────────────
+const relLayer = container.append('g').attr('id','rel-labels');
+const familyRaw = rawEdges.filter(e=>e.type==='family');
+const relSel = relLayer.selectAll('g').data(familyRaw).enter().append('g').attr('class','rel-label');
 relSel.append('rect').attr('class','rel-label-bg').attr('rx',3).attr('ry',3);
-relSel.append('text').attr('class','rel-label-text').attr('dy','0.35em').text(d => d.rel);
+relSel.append('text').attr('class','rel-label-text').attr('dy','0.35em').text(d=>d.rel);
 
-// ── Render nodes ─────────────────────────────────────────────────────────────
-const nodeGroup = container.append('g').attr('id','nodes');
-const nodeSel = nodeGroup.selectAll('g').data(nodes).enter().append('g')
-  .attr('class', 'node')
-  .attr('data-name', d => d.name)
+// ── Sibling group bars ────────────────────────────────────────────────────────
+const groupLayer = container.append('g').attr('id','groups');
+const groupSel = groupLayer.selectAll('g')
+  .data(simNodes.filter(n=>n.isGroup))
+  .enter().append('g').attr('class','sibling-group');
+
+groupSel.each(function(anchor) {
+  const g = d3.select(this);
+  const n = anchor.members.length;
+  const halfW = (n-1)/2*SGROUP_W;
+
+  // Horizontal bar
+  g.append('line').attr('class','sibling-bar-line')
+    .attr('x1',-halfW).attr('y1',0).attr('x2',halfW).attr('y2',0);
+  // Centre tick (where parent line arrives)
+  g.append('line').attr('class','sibling-tick')
+    .attr('x1',0).attr('y1',-7).attr('x2',0).attr('y2',7);
+
+  anchor.members.forEach((m,i) => {
+    const ox = (i-(n-1)/2)*SGROUP_W;
+    const r  = 7+(m.friendCount+m.familyCount)*0.5;
+    const mg = g.append('g').attr('class','node sib-member').attr('data-name',m.name).datum(m);
+
+    mg.append('circle').attr('cx',ox).attr('cy',0).attr('r',r)
+      .attr('class','type-person'+(m.connType==='family'?' connected-family':m.connType==='both'?' connected-both':''))
+      .style('stroke', m.connType==='both'?'url(#bothGrad)':m.connType==='family'?'#d4a843':m.connType==='friend'?'#3d8bcd':'#444c56');
+
+    mg.append('text').attr('class','node-label')
+      .attr('x',ox).attr('y',-(r+4)).attr('text-anchor','middle').text(m.name);
+
+    mg.on('mouseover',(event)=>showTooltip(event,m))
+      .on('mousemove',moveTooltip)
+      .on('mouseout',hideTooltip);
+  });
+});
+
+// Drag whole group bar
+groupSel.call(d3.drag()
+  .on('start',(event,anchor)=>{ if(!event.active) simulation.alphaTarget(0.3).restart(); anchor.fx=anchor.x; anchor.fy=anchor.y; })
+  .on('drag', (event,anchor)=>{ anchor.fx=event.x; anchor.fy=event.y; })
+  .on('end',  (event,anchor)=>{ if(!event.active) simulation.alphaTarget(0); }))
+  .on('dblclick',(event,anchor)=>{ event.stopPropagation(); anchor.fx=null; anchor.fy=null; });
+
+// ── Standalone nodes ──────────────────────────────────────────────────────────
+const nodeLayer = container.append('g').attr('id','nodes');
+const nodeSel = nodeLayer.selectAll('g')
+  .data(simNodes.filter(n=>!n.isGroup))
+  .enter().append('g').attr('class','node standalone')
+  .attr('data-name',d=>d.name)
   .call(d3.drag()
-    .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-    .on('drag',  (event, d) => { d.fx = event.x; d.fy = event.y; })
-    .on('end',   (event, d) => { if (!event.active) simulation.alphaTarget(0); }))
-  .on('dblclick', (event, d) => { event.stopPropagation(); d.fx = null; d.fy = null; })
-  .on('mouseover', showTooltip)
-  .on('mousemove', moveTooltip)
-  .on('mouseout',  hideTooltip);
+    .on('start',(event,d)=>{ if(!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on('drag', (event,d)=>{ d.fx=event.x; d.fy=event.y; })
+    .on('end',  (event,d)=>{ if(!event.active) simulation.alphaTarget(0); }))
+  .on('dblclick',(event,d)=>{ event.stopPropagation(); d.fx=null; d.fy=null; })
+  .on('mouseover',showTooltip).on('mousemove',moveTooltip).on('mouseout',hideTooltip);
 
 nodeSel.append('circle')
-  .attr('r', d => 7 + (d.friendCount + d.familyCount) * 0.5)
-  .attr('class', d => {
-    let c = 'type-person';
-    if (d.connType === 'family') c += ' connected-family';
-    else if (d.connType === 'both') c += ' connected-both';
-    return c;
-  })
-  .style('stroke', d => {
-    if (d.connType === 'both') return 'url(#bothGrad)';
-    if (d.connType === 'family') return '#d4a843';
-    if (d.connType === 'friend') return '#3d8bcd';
-    return '#444c56';
+  .attr('r',d=>7+(d.friendCount+d.familyCount)*0.5)
+  .attr('class',d=>'type-person'+(d.connType==='family'?' connected-family':d.connType==='both'?' connected-both':''))
+  .style('stroke',d=>d.connType==='both'?'url(#bothGrad)':d.connType==='family'?'#d4a843':d.connType==='friend'?'#3d8bcd':'#444c56');
+
+nodeSel.append('text').attr('class','node-label')
+  .attr('y',d=>-(7+(d.friendCount+d.familyCount)*0.5)-4)
+  .attr('text-anchor','middle').text(d=>d.name);
+
+// ── Tick ──────────────────────────────────────────────────────────────────────
+simulation.on('tick', () => {
+  // Recompute individual positions from group anchors
+  simNodes.forEach(sim => {
+    if (sim.isGroup) {
+      const n = sim.members.length;
+      sim.members.forEach((m,i) => {
+        m.x = sim.x + (i-(n-1)/2)*SGROUP_W;
+        m.y = sim.y;
+      });
+    }
   });
 
-nodeSel.append('text')
-  .attr('class','node-label')
-  .attr('y', d => -(8 + (d.friendCount + d.familyCount) * 0.5) - 4)
-  .text(d => d.name);
+  groupSel.attr('transform', d=>`translate(${d.x},${d.y})`);
+  nodeSel.attr('transform',  d=>`translate(${d.x},${d.y})`);
 
-// ── Simulation tick ───────────────────────────────────────────────────────────
-simulation.on('tick', () => {
   edgeSel
-    .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    .attr('x1',d=>nodeByName.get(d.srcName)?.x??0)
+    .attr('y1',d=>nodeByName.get(d.srcName)?.y??0)
+    .attr('x2',d=>nodeByName.get(d.tgtName)?.x??0)
+    .attr('y2',d=>nodeByName.get(d.tgtName)?.y??0);
+
+  relSel.attr('transform',d=>{
+    const sx=nodeByName.get(d.srcName)?.x??0, sy=nodeByName.get(d.srcName)?.y??0;
+    const tx=nodeByName.get(d.tgtName)?.x??0, ty=nodeByName.get(d.tgtName)?.y??0;
+    return `translate(${(sx+tx)/2},${(sy+ty)/2})`;
+  });
+  relSel.each(function(){
+    const g=d3.select(this), text=g.select('text');
+    try { const bb=text.node().getBBox(); g.select('rect').attr('x',bb.x-3).attr('y',bb.y-2).attr('width',bb.width+6).attr('height',bb.height+4); } catch(e){}
+  });
 
   bridgeSel
-    .attr('x1', d => d.src.x).attr('y1', d => d.src.y)
-    .attr('x2', d => d.tgt.x).attr('y2', d => d.tgt.y);
-
-  relSel.attr('transform', d => {
-    const mx = (d.source.x + d.target.x) / 2;
-    const my = (d.source.y + d.target.y) / 2;
-    return `translate(${mx},${my})`;
-  });
-
-  relSel.each(function() {
-    const g    = d3.select(this);
-    const text = g.select('text');
-    try {
-      const bb = text.node().getBBox();
-      g.select('rect')
-        .attr('x', bb.x - 3).attr('y', bb.y - 2)
-        .attr('width', bb.width + 6).attr('height', bb.height + 4);
-    } catch(e) {}
-  });
-
-  nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+    .attr('x1',d=>d.src.x).attr('y1',d=>d.src.y)
+    .attr('x2',d=>d.tgt.x).attr('y2',d=>d.tgt.y);
 });
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 const tooltip = document.getElementById('tooltip');
 let ttTimer = null;
-let ttPinned = false; // true once user has interacted with the card
 
 function cancelHide() { clearTimeout(ttTimer); }
-function scheduleHide() {
-  ttTimer = setTimeout(() => {
-    tooltip.classList.remove('visible');
-    nodeSel.classed('faded', false);
-    edgeSel.classed('faded', false);
-    relSel.style('opacity', null);
-    ttPinned = false;
-  }, 180);
+function clearHighlight() {
+  nodeSel.classed('faded', false);
+  d3.selectAll('.sib-member').classed('faded', false);
+  edgeSel.classed('faded', false);
+  relSel.style('opacity', null);
 }
-
+function scheduleHide() {
+  ttTimer = setTimeout(()=>{ tooltip.classList.remove('visible'); clearHighlight(); }, 200);
+}
 tooltip.addEventListener('mouseenter', cancelHide);
 tooltip.addEventListener('mouseleave', scheduleHide);
 
 function showTooltip(event, d) {
   cancelHide();
-  const conns = edges.filter(e => e.source.name === d.name || e.target.name === d.name);
-  const fam   = conns.filter(e => e.type === 'family');
-  const fri   = conns.filter(e => e.type === 'friend');
+  // edges have string source/target (never passed to forceLink)
+  const conns = edges.filter(e=>e.source===d.name||e.target===d.name);
+  const fam = conns.filter(e=>e.type==='family');
+  const fri = conns.filter(e=>e.type==='friend');
 
   let html = `<div class="tt-close" onclick="forceHideTooltip()">✕</div>`;
   html += `<div class="tt-name">${d.name}</div>`;
   if (d.family) html += `<div class="tt-row"><span>Family</span><span>${d.family}</span></div>`;
-  if (d.friendCount || d.familyCount) {
-    html += `<div class="tt-row"><span>Friendships</span><span>${d.friendCount}</span></div>`;
-    html += `<div class="tt-row"><span>Family ties</span><span>${d.familyCount}</span></div>`;
+  if (d.friendCount||d.familyCount)
+    html += `<div class="tt-row"><span>Friendships</span><span>${d.friendCount}</span></div>
+             <div class="tt-row"><span>Family ties</span><span>${d.familyCount}</span></div>`;
+
+  const sim = nodeToSim.get(d.name);
+  if (sim?.isGroup && sim.members.length > 1) {
+    const sibs = sim.members.filter(m=>m.name!==d.name).map(m=>m.name).join(', ');
+    html += `<div class="tt-row" style="flex-wrap:wrap"><span>Siblings</span><span style="font-size:0.6rem;color:var(--text)">${sibs}</span></div>`;
   }
 
-  const allConns = [...fam.map(e => {
-    const other = e.source.name === d.name ? e.target.name : e.source.name;
-    return `<div class="tt-conn-item"><div class="dot-fam"></div><b>${other}</b><span>${e.rel}</span></div>`;
-  }), ...fri.map(e => {
-    const other = e.source.name === d.name ? e.target.name : e.source.name;
-    return `<div class="tt-conn-item"><div class="dot-f"></div><b>${other}</b></div>`;
-  })];
-
+  const allConns = [
+    ...fam.map(e=>{ const o=e.source===d.name?e.target:e.source; return `<div class="tt-conn-item"><div class="dot-fam"></div><b>${o}</b><span>${e.rel}</span></div>`; }),
+    ...fri.map(e=>{ const o=e.source===d.name?e.target:e.source; return `<div class="tt-conn-item"><div class="dot-f"></div><b>${o}</b></div>`; })
+  ];
   if (allConns.length) html += `<div class="tt-connections">${allConns.join('')}</div>`;
 
   tooltip.innerHTML = html;
   tooltip.classList.add('visible');
   positionTooltip(event.clientX, event.clientY);
 
-  // Highlight connected nodes/edges
-  const connNames = new Set(conns.map(e => e.source.name === d.name ? e.target.name : e.source.name));
+  const connNames = new Set(conns.map(e=>e.source===d.name?e.target:e.source));
   connNames.add(d.name);
-  nodeSel.classed('faded', n => !connNames.has(n.name));
-  edgeSel.classed('faded', e => e.source.name !== d.name && e.target.name !== d.name);
-  relSel.style('opacity', e => (e.source.name === d.name || e.target.name === d.name) ? 1 : 0);
+  nodeSel.classed('faded', n=>!connNames.has(n.name));
+  d3.selectAll('.sib-member').classed('faded', function(){ return !connNames.has(this.getAttribute('data-name')); });
+  edgeSel.classed('faded', e=>!connNames.has(e.srcName)&&!connNames.has(e.tgtName));
+  relSel.style('opacity', e=>(connNames.has(e.srcName)||connNames.has(e.tgtName))?1:0);
 }
 
 function positionTooltip(cx, cy) {
   const wrap = document.getElementById('graph-wrap').getBoundingClientRect();
-  let x = cx - wrap.left + 16;
-  let y = cy - wrap.top  - 10;
-  const tw = 270, th = 240;
-  if (x + tw > wrap.width)  x = cx - wrap.left - tw - 10;
-  if (y + th > wrap.height) y = cy - wrap.top  - th;
-  tooltip.style.left = x + 'px';
-  tooltip.style.top  = y + 'px';
+  let x=cx-wrap.left+16, y=cy-wrap.top-10;
+  if (x+270>wrap.width)  x=cx-wrap.left-280;
+  if (y+240>wrap.height) y=cy-wrap.top-240;
+  tooltip.style.left=x+'px'; tooltip.style.top=y+'px';
 }
+function moveTooltip(event) { if(!tooltip.matches(':hover')) positionTooltip(event.clientX,event.clientY); }
+function hideTooltip() { scheduleHide(); }
+function forceHideTooltip() { clearTimeout(ttTimer); tooltip.classList.remove('visible'); clearHighlight(); }
 
-function moveTooltip(event) {
-  // Only reposition if tooltip not being hovered (to avoid jitter while reading)
-  if (!tooltip.matches(':hover')) positionTooltip(event.clientX, event.clientY);
-}
-
-function hideTooltip()    { scheduleHide(); }
-function forceHideTooltip() {
-  clearTimeout(ttTimer);
-  tooltip.classList.remove('visible');
-  nodeSel.classed('faded', false);
-  edgeSel.classed('faded', false);
-  relSel.style('opacity', null);
-}
-
-// ── Toggle edge types ─────────────────────────────────────────────────────────
-const visible = { friend: true, family: true };
+// ── Toggles ───────────────────────────────────────────────────────────────────
+const visible = { friend:true, family:true };
 function toggleType(type) {
-  visible[type] = !visible[type];
-  document.getElementById('tog-' + type).classList.toggle('active', visible[type]);
-  edgeSel.filter(d => d.type === type).style('display', visible[type] ? null : 'none');
-  relSel.filter(d => d.type === type).style('display', visible[type] ? null : 'none');
+  visible[type]=!visible[type];
+  document.getElementById('tog-'+type).classList.toggle('active',visible[type]);
+  edgeSel.filter(d=>d.type===type).style('display',visible[type]?null:'none');
+  relSel.filter(d=>d.type===type).style('display',visible[type]?null:'none');
 }
-
-let bridgeVisible = true;
+let bridgeVisible=true;
 function toggleBridge() {
-  bridgeVisible = !bridgeVisible;
-  document.getElementById('tog-bridge').classList.toggle('active', bridgeVisible);
-  bridgeSel.classed('hidden', !bridgeVisible);
+  bridgeVisible=!bridgeVisible;
+  document.getElementById('tog-bridge').classList.toggle('active',bridgeVisible);
+  bridgeSel.classed('hidden',!bridgeVisible);
 }
 
-// ── Search ─────────────────────────────────────────────────────────────────
+// ── Search ────────────────────────────────────────────────────────────────────
 function toggleSearch() {
-  const w = document.getElementById('search-wrap');
-  const open = w.style.display === 'block';
-  w.style.display = open ? 'none' : 'block';
-  if (!open) { document.getElementById('search-input').focus(); }
-  else { doSearch(''); document.getElementById('search-input').value = ''; }
+  const w=document.getElementById('search-wrap');
+  const open=w.style.display==='block';
+  w.style.display=open?'none':'block';
+  if(!open) document.getElementById('search-input').focus();
+  else { doSearch(''); document.getElementById('search-input').value=''; }
 }
-
 function doSearch(q) {
-  if (!q) { nodeSel.classed('faded', false); edgeSel.classed('faded', false); relSel.style('opacity', null); return; }
-  const lq = q.toLowerCase();
-  const match = nodes.filter(n => n.name.toLowerCase().includes(lq));
-  if (!match.length) return;
-  const matchNames = new Set(match.map(n => n.name));
-  // Also include their connections
-  edges.forEach(e => {
-    if (matchNames.has(e.source.name || e.source)) matchNames.add(e.target.name || e.target);
-    if (matchNames.has(e.target.name || e.target)) matchNames.add(e.source.name || e.source);
+  if(!q){clearHighlight();return;}
+  const lq=q.toLowerCase();
+  const matchNames=new Set(nodes.filter(n=>n.name.toLowerCase().includes(lq)).map(n=>n.name));
+  edges.forEach(e=>{
+    if(matchNames.has(e.source)) matchNames.add(e.target);
+    if(matchNames.has(e.target)) matchNames.add(e.source);
   });
-  nodeSel.classed('faded', n => !matchNames.has(n.name));
-  edgeSel.classed('faded', e => !matchNames.has(e.source.name) && !matchNames.has(e.target.name));
-  relSel.style('opacity', e => (matchNames.has(e.source.name) || matchNames.has(e.target.name)) ? 1 : 0);
+  nodeSel.classed('faded',n=>!matchNames.has(n.name));
+  d3.selectAll('.sib-member').classed('faded',function(){return !matchNames.has(this.getAttribute('data-name'));});
+  edgeSel.classed('faded',e=>!matchNames.has(e.srcName)&&!matchNames.has(e.tgtName));
+  relSel.style('opacity',e=>(matchNames.has(e.srcName)||matchNames.has(e.tgtName))?1:0);
 }
-
-document.addEventListener('keydown', e => {
-  if (e.key === '/') { e.preventDefault(); toggleSearch(); }
-  if (e.key === 'Escape') { 
-    const w = document.getElementById('search-wrap');
-    if (w.style.display === 'block') { toggleSearch(); }
-  }
+document.addEventListener('keydown',e=>{
+  if(e.key==='/'){e.preventDefault();toggleSearch();}
+  if(e.key==='Escape'){const w=document.getElementById('search-wrap');if(w.style.display==='block')toggleSearch();}
 });
 
-// ── Zoom controls ─────────────────────────────────────────────────────────────
-function zoom(factor) {
-  svg.transition().duration(300).call(zoomBehavior.scaleBy, factor);
-}
-function resetView() {
-  svg.transition().duration(500).call(zoomBehavior.transform, d3.zoomIdentity.translate(width/2, height/2).scale(0.9).translate(-width/2, -height/2));
-}
+// ── Zoom ──────────────────────────────────────────────────────────────────────
+function zoom(factor) { svg.transition().duration(300).call(zoomBehavior.scaleBy,factor); }
+function resetView()  { svg.transition().duration(500).call(zoomBehavior.transform,d3.zoomIdentity.translate(width/2,height/2).scale(0.9).translate(-width/2,-height/2)); }
 </script>
 </body>
 </html>
