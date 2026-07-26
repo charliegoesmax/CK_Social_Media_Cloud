@@ -6,504 +6,9 @@
 <title>Connection Network</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<style>
-  :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --accent: #58a6ff;
-    --friend: #3d8bcd;
-    --family: #d4a843;
-    --none-col: #444c56;
-    --glow-f: rgba(61,139,205,0.25);
-    --glow-fam: rgba(212,168,67,0.25);
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'JetBrains Mono', monospace;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  header {
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-shrink: 0;
-    z-index: 10;
-  }
-  header h1 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 1.3rem;
-    letter-spacing: 0.02em;
-    color: var(--text);
-  }
-  header h1 span {
-    color: var(--family);
-    font-style: italic;
-  }
-  .legend {
-    display: flex;
-    gap: 18px;
-    margin-left: auto;
-    align-items: center;
-  }
-  .legend-item {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 0.7rem;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    transition: all 0.15s;
-    user-select: none;
-  }
-  .legend-item:hover { border-color: var(--border); background: rgba(255,255,255,0.04); }
-  .legend-item.active { color: var(--text); border-color: var(--border); }
-  .legend-line {
-    width: 28px;
-    height: 2px;
-    border-radius: 1px;
-  }
-  .legend-line.friend { background: var(--friend); }
-  .legend-line.family { background: var(--family); }
-  .legend-line.none { background: var(--none-col); opacity: 0.4; }
-  .stats {
-    font-size: 0.65rem;
-    color: var(--muted);
-    display: flex;
-    gap: 14px;
-  }
-  .stats span {
-    cursor: pointer;
-    padding: 3px 6px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-    transition: all 0.15s;
-  }
-  .stats span:hover {
-    border-color: var(--border);
-    background: rgba(255,255,255,0.04);
-    color: var(--text);
-  }
-  .stats span b { color: var(--accent); }
-  #graph-wrap {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-  }
-  svg {
-    width: 100%;
-    height: 100%;
-    cursor: grab;
-  }
-  svg:active { cursor: grabbing; }
-  /* ── Edges ── */
-  .edge-friend {
-    stroke: var(--friend);
-    stroke-width: 1.5;
-    stroke-dasharray: 5 3;
-    fill: none;
-    opacity: 0.6;
-    transition: opacity 0.2s;
-  }
-  .edge-family {
-    stroke: var(--family);
-    stroke-width: 1.8;
-    fill: none;
-    opacity: 0.75;
-    transition: opacity 0.2s;
-  }
-  .edge-friend.faded, .edge-family.faded { opacity: 0.08; }
-  .edge-friend.hidden-filter, .edge-family.hidden-filter { display: none !important; }
-  /* ── Family bridge paths ── */
-  .edge-bridge {
-    stroke: #e05252;
-    stroke-width: 3;
-    stroke-dasharray: 12 6;
-    fill: none;
-    opacity: 0.7;
-    pointer-events: none;
-    transition: opacity 0.2s;
-  }
-  .edge-bridge.hidden { display: none; }
-  .legend-line.bridge {
-    background: #e05252;
-    height: 3px;
-    border-radius: 1px;
-    border-top: none;
-  }
-  /* ── Nodes ── */
-  .node circle {
-    stroke-width: 1.5;
-    cursor: pointer;
-    transition: r 0.15s;
-  }
-  .node circle.type-person {
-    fill: #1c2333;
-    stroke: var(--accent);
-  }
-  .node circle.connected-family {
-    stroke: var(--family);
-  }
-  .node circle.connected-both {
-    stroke: url(#bothGrad);
-  }
-  .node circle.highlighted {
-    fill: rgba(88, 166, 255, 0.15);
-    filter: drop-shadow(0 0 6px var(--accent));
-  }
-  .node text.node-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    fill: var(--muted);
-    text-anchor: middle;
-    pointer-events: none;
-    dominant-baseline: central;
-    transition: fill 0.15s;
-  }
-  .node:hover text.node-label,
-  .node.hovered text.node-label { fill: var(--text); }
-  .node.faded circle { opacity: 0.12; }
-  .node.faded text { opacity: 0.08; }
-  .node.hidden-filter { display: none !important; }
-  /* ── Sibling group bars ── */
-  .sibling-group { cursor: grab; }
-  .sibling-group:active { cursor: grabbing; }
-  .sibling-group.hidden-filter { display: none !important; }
-  .sibling-bar-line {
-    stroke: #3a4150;
-    stroke-width: 2;
-    fill: none;
-  }
-  .sibling-tick {
-    stroke: #3a4150;
-    stroke-width: 1;
-    stroke-dasharray: 2 3;
-    fill: none;
-  }
-  .sib-member { cursor: pointer; }
-  .sib-member.hidden-filter { display: none !important; }
-  /* ── Relationship labels ── */
-  .rel-label-bg {
-    fill: #1a1f2b;
-    stroke: var(--family);
-    stroke-width: 0.5;
-    rx: 3; ry: 3;
-    opacity: 0.9;
-  }
-  .rel-label-text {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 7.5px;
-    fill: var(--family);
-    text-anchor: middle;
-    dominant-baseline: central;
-    pointer-events: none;
-    opacity: 0.9;
-  }
-  .rel-label.hidden-filter { display: none !important; }
-  /* ── Tooltip ── */
-  #tooltip {
-    position: absolute;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 15px;
-    font-size: 0.7rem;
-    pointer-events: auto;
-    opacity: 0;
-    transition: opacity 0.15s;
-    max-width: 260px;
-    z-index: 100;
-    cursor: default;
-  }
-  #tooltip.visible { opacity: 1; }
-  #tooltip .tt-close {
-    position: absolute;
-    top: 7px; right: 9px;
-    font-size: 0.65rem;
-    color: var(--muted);
-    cursor: pointer;
-    line-height: 1;
-    padding: 2px 4px;
-    border-radius: 3px;
-  }
-  #tooltip .tt-close:hover { color: var(--text); background: var(--border); }
-  #tooltip .tt-name {
-    font-family: 'DM Serif Display', serif;
-    font-size: 0.95rem;
-    color: var(--text);
-    margin-bottom: 6px;
-  }
-  #tooltip .tt-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    color: var(--muted);
-    margin-top: 3px;
-  }
-  #tooltip .tt-row span:last-child { color: var(--text); }
-  #tooltip .tt-connections {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-    max-height: 120px;
-    overflow-y: auto;
-  }
-  #tooltip .tt-conn-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-    font-size: 0.65rem;
-  }
-  .dot-f { width: 6px; height: 6px; border-radius: 50%; background: var(--friend); flex-shrink:0; }
-  .dot-fam { width: 6px; height: 6px; border-radius: 50%; background: var(--family); flex-shrink:0; }
-  #tooltip .tt-conn-item span { color: var(--muted); }
-  #tooltip .tt-conn-item b { color: var(--text); font-weight: 400; }
-  /* ── Controls ── */
-  .controls {
-    position: absolute;
-    bottom: 20px;
-    right: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    z-index: 10;
-  }
-  .ctrl-btn {
-    width: 32px; height: 32px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-size: 1rem;
-    cursor: pointer;
-    border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s;
-    line-height: 1;
-  }
-  .ctrl-btn:hover { background: var(--border); }
-  /* ── Search ── */
-  .search-wrap {
-    position: absolute;
-    top: 14px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 20;
-    display: none;
-  }
-  #search-input {
-    background: var(--surface);
-    border: 1px solid var(--accent);
-    color: var(--text);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    padding: 6px 12px;
-    border-radius: 20px;
-    width: 220px;
-    outline: none;
-  }
-  #search-results {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    margin-top: 4px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    max-height: 220px;
-    overflow-y: auto;
-    display: none;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  }
-  #search-results.visible { display: block; }
-  .search-result-item {
-    padding: 8px 14px;
-    font-size: 0.72rem;
-    color: var(--text);
-    cursor: pointer;
-    border-bottom: 1px solid var(--border);
-    transition: background 0.1s;
-  }
-  .search-result-item:last-child { border-bottom: none; }
-  .search-result-item:hover { background: rgba(88,166,255,0.12); }
-  .search-result-item .sr-family {
-    color: var(--muted);
-    font-size: 0.6rem;
-    margin-left: 6px;
-  }
-  /* ── Upload area ── */
-  .upload-area {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: rgba(13,17,23,0.92);
-    z-index: 50;
-    transition: opacity 0.25s;
-  }
-  .upload-area.hidden { opacity: 0; pointer-events: none; }
-  .upload-box {
-    border: 2px dashed var(--border);
-    border-radius: 12px;
-    padding: 40px 60px;
-    text-align: center;
-    background: var(--surface);
-    max-width: 420px;
-  }
-  .upload-box h2 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 1.4rem;
-    margin-bottom: 8px;
-  }
-  .upload-box p {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin-bottom: 20px;
-    line-height: 1.5;
-  }
-  .upload-btn {
-    display: inline-block;
-    background: var(--accent);
-    color: #0d1117;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
-    font-weight: 500;
-    padding: 10px 22px;
-    border-radius: 6px;
-    cursor: pointer;
-    border: none;
-  }
-  .upload-btn:hover { filter: brightness(1.1); }
-  #file-input { display: none; }
-  .reupload-btn {
-    font-size: 0.7rem;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 4px 10px;
-    border-radius: 4px;
-    border: 1px solid transparent;
-  }
-  .reupload-btn:hover { border-color: var(--border); color: var(--text); }
-  /* ── Sidebar ── */
-  .sidebar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 300px;
-    height: 100%;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    z-index: 40;
-    transform: translateX(-100%);
-    transition: transform 0.25s ease;
-    display: flex;
-    flex-direction: column;
-  }
-  .sidebar.open { transform: translateX(0); }
-  .sidebar-header {
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-shrink: 0;
-  }
-  .sidebar-header h3 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 1.05rem;
-    color: var(--text);
-  }
-  .sidebar-close {
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 1.1rem;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-  .sidebar-close:hover { color: var(--text); background: var(--border); }
-  .sidebar-actions {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-  .sidebar-actions button {
-    flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--muted);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
-    padding: 5px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .sidebar-actions button:hover { color: var(--text); border-color: var(--accent); }
-  .sidebar-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px 0;
-  }
-  .sidebar-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 7px 16px;
-    font-size: 0.72rem;
-    color: var(--text);
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-  .sidebar-item:hover { background: rgba(255,255,255,0.04); }
-  .sidebar-item input[type="checkbox"] {
-    accent-color: var(--accent);
-    width: 14px;
-    height: 14px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .sidebar-item .item-label {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .sidebar-item .item-meta {
-    font-size: 0.6rem;
-    color: var(--muted);
-    flex-shrink: 0;
-  }
-  .sidebar-empty {
-    padding: 20px;
-    text-align: center;
-    color: var(--muted);
-    font-size: 0.75rem;
-  }
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-</style>
 </head>
 <body>
 <header>
@@ -521,6 +26,15 @@
     </div>
     <div class="legend-item" id="tog-search" onclick="toggleSearch()" title="Search (/)">
       <span>⌕ Search</span>
+    </div>
+    <div class="size-control" title="Node size metric">
+      <span>Size</span>
+      <select id="size-metric" onchange="setSizeMetric(this.value)">
+        <option value="degree" selected>Degree</option>
+        <option value="betweenness">Betweenness</option>
+        <option value="closeness">Closeness</option>
+        <option value="connections">Connections</option>
+      </select>
     </div>
     <div class="reupload-btn" onclick="showUpload()" title="Load another file">↻ Load file</div>
   </div>
@@ -635,6 +149,8 @@ let currentSidebarType = null;
 let allFamilies = [];
 let allSibGroups = [];
 let friendEdgeList = [];
+let isolatedName = null; // null = no isolation
+let sizeMetric = 'degree'; // degree | betweenness | closeness | connections
 const SGROUP_W = 68;
 const svgEl = document.getElementById('svg');
 const svg = d3.select(svgEl);
@@ -675,6 +191,7 @@ function handleFile(file) {
         const key = [e.source, e.target].sort().join('|||');
         return [key, true];
       }));
+      isolatedName = null;
       buildGraph();
       hideUpload();
     } catch (err) {
@@ -684,22 +201,158 @@ function handleFile(file) {
   if (isXlsx) reader.readAsArrayBuffer(file);
   else reader.readAsText(file);
 }
+// ── Clean name for family extraction: ignore numbers & parentheticals ───────
+function cleanNameParts(name) {
+  // Remove content inside parentheses (and the parens themselves)
+  let cleaned = name.replace(/\([^)]*\)/g, ' ');
+  // Collapse whitespace
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  // Split into words
+  let parts = cleaned.split(/\s+/).filter(Boolean);
+  // Drop pure numeric tokens and tokens that are only punctuation/numbers
+  parts = parts.filter(p => !/^\d+$/.test(p) && /[A-Za-z]/.test(p));
+  return parts;
+}
+// ── Centrality metrics (degree, betweenness, closeness) ─────────────────────
+function computeCentralities() {
+  const n = nodes.length;
+  if (n === 0) return;
+  const nameToIdx = new Map(nodes.map((nd, i) => [nd.name, i]));
+  const adj = Array.from({ length: n }, () => []);
+  edges.forEach(e => {
+    const i = nameToIdx.get(e.source);
+    const j = nameToIdx.get(e.target);
+    if (i != null && j != null && i !== j) {
+      adj[i].push(j);
+      adj[j].push(i);
+    }
+  });
+  // Degree (unique neighbors)
+  nodes.forEach((nd, i) => {
+    nd.degree = adj[i].length;
+  });
+  // Brandes betweenness + closeness via BFS from every source
+  const betweenness = new Array(n).fill(0);
+  const closeness = new Array(n).fill(0);
+  for (let s = 0; s < n; s++) {
+    const dist = new Array(n).fill(-1);
+    const sigma = new Array(n).fill(0);
+    const pred = Array.from({ length: n }, () => []);
+    const queue = [s];
+    dist[s] = 0;
+    sigma[s] = 1;
+    let qi = 0;
+    while (qi < queue.length) {
+      const v = queue[qi++];
+      for (const w of adj[v]) {
+        if (dist[w] < 0) {
+          dist[w] = dist[v] + 1;
+          queue.push(w);
+        }
+        if (dist[w] === dist[v] + 1) {
+          sigma[w] += sigma[v];
+          pred[w].push(v);
+        }
+      }
+    }
+    // Closeness = reachable / sum(distances)  (higher = more central)
+    let sumDist = 0, reachable = 0;
+    for (let i = 0; i < n; i++) {
+      if (dist[i] > 0) {
+        sumDist += dist[i];
+        reachable++;
+      }
+    }
+    closeness[s] = (reachable > 0 && sumDist > 0) ? (reachable / sumDist) : 0;
+    // Brandes dependency accumulation
+    const delta = new Array(n).fill(0);
+    for (let i = queue.length - 1; i >= 0; i--) {
+      const w = queue[i];
+      for (const v of pred[w]) {
+        if (sigma[w] > 0) delta[v] += (sigma[v] / sigma[w]) * (1 + delta[w]);
+      }
+      if (w !== s) betweenness[w] += delta[w];
+    }
+  }
+  // Undirected: each pair counted twice
+  for (let i = 0; i < n; i++) betweenness[i] /= 2;
+  // Normalize to [0,1] for sizing
+  const maxB = Math.max(...betweenness, 1e-12);
+  const maxC = Math.max(...closeness, 1e-12);
+  const maxD = Math.max(...nodes.map(nd => nd.degree), 1);
+  nodes.forEach((nd, i) => {
+    nd.betweenness = betweenness[i];
+    nd.closeness = closeness[i];
+    nd.normBetweenness = betweenness[i] / maxB;
+    nd.normCloseness = closeness[i] / maxC;
+    nd.normDegree = nd.degree / maxD;
+    // "connections" keeps the old heuristic (friend + family counts, may count multi-edges? but we deduped)
+    nd.normConnections = Math.min(1, (nd.friendCount + nd.familyCount) / Math.max(maxD * 1.5, 1));
+  });
+}
+function nodeRadius(d) {
+  const base = 7;
+  let score = 0;
+  if (sizeMetric === 'betweenness') score = d.normBetweenness || 0;
+  else if (sizeMetric === 'closeness') score = d.normCloseness || 0;
+  else if (sizeMetric === 'connections') score = d.normConnections || 0;
+  else score = d.normDegree || 0; // degree default
+  // map [0,1] → radius range ~7–22
+  return base + score * 15;
+}
+function setSizeMetric(metric) {
+  sizeMetric = metric;
+  // Update all visible node circles
+  if (nodeSel) {
+    nodeSel.select('circle').attr('r', d => nodeRadius(d));
+    nodeSel.select('text.node-label').attr('y', d => -(nodeRadius(d) + 4));
+  }
+  d3.selectAll('.sib-member').each(function(d) {
+    const r = nodeRadius(d);
+    const g = d3.select(this);
+    g.select('circle').attr('r', r);
+    g.select('text.node-label').attr('y', -(r + 4));
+  });
+  // Refresh collision radii and give the layout a gentle nudge
+  if (simulation) {
+    simulation.force('collision', d3.forceCollide(d =>
+      d.isGroup ? ((d.members.length - 1) / 2 * SGROUP_W + 28) : (nodeRadius(d) + 4)
+    ));
+    simulation.alpha(0.12).restart();
+  }
+}
 // ── Full graph rebuild ──────────────────────────────────────────────────────
 function buildGraph() {
   // Clear previous visual elements
   container.selectAll('*').remove();
   if (simulation) simulation.stop();
+  // ── Centrality metrics ──────────────────────────────────────────────────
+  computeCentralities();
   // ── Family name assignment ──────────────────────────────────────────────
+  // Use cleaned parts so numbers / (notes) are ignored; surname is last meaningful word
   const wordFreq = new Map();
   nodes.forEach(n => {
-    n.name.trim().split(/\s+/).slice(-2).forEach(w => wordFreq.set(w, (wordFreq.get(w) || 0) + 1));
+    const parts = cleanNameParts(n.name);
+    // Use the last two meaningful tokens for frequency
+    parts.slice(-2).forEach(w => wordFreq.set(w, (wordFreq.get(w) || 0) + 1));
   });
   nodes.forEach(n => {
-    const parts = n.name.trim().split(/\s+/);
-    if (parts.length === 1) { n.family = parts[0]; return; }
-    const last = parts[parts.length - 1], prev = parts[parts.length - 2];
+    const parts = cleanNameParts(n.name);
+    if (parts.length === 0) {
+      // fallback: original last token without parens/numbers
+      const raw = n.name.replace(/\([^)]*\)/g, '').trim().split(/\s+/).filter(Boolean);
+      n.family = raw.length ? raw[raw.length - 1] : n.name;
+      return;
+    }
+    if (parts.length === 1) {
+      n.family = parts[0];
+      return;
+    }
+    const last = parts[parts.length - 1];
+    const prev = parts[parts.length - 2];
     const lastOk = /^[A-Z]/.test(last) && last.length > 2;
     const prevOk = /^[A-Z]/.test(prev) && prev.length > 2;
+    // Prefer the more frequent of the two candidate surnames
     n.family = (prevOk && lastOk)
       ? ((wordFreq.get(prev) || 0) >= (wordFreq.get(last) || 0) ? prev : last)
       : last;
@@ -835,7 +488,7 @@ function buildGraph() {
     .force('link', d3.forceLink(simLinks).id(d => d.name).distance(130))
     .force('charge', d3.forceManyBody().strength(-320))
     .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide(d => d.isGroup ? ((d.members.length - 1) / 2 * SGROUP_W + 28) : 22))
+    .force('collision', d3.forceCollide(d => d.isGroup ? ((d.members.length - 1) / 2 * SGROUP_W + 28) : (nodeRadius(d) + 4)))
     .alphaTarget(0);
   // ── Edges ───────────────────────────────────────────────────────────────
   const edgeLayer = container.append('g').attr('id', 'edges');
@@ -872,7 +525,7 @@ function buildGraph() {
       .attr('x1', 0).attr('y1', -7).attr('x2', 0).attr('y2', 7);
     anchor.members.forEach((m, i) => {
       const ox = (i - (n - 1) / 2) * SGROUP_W;
-      const r = 7 + (m.friendCount + m.familyCount) * 0.5;
+      const r = nodeRadius(m);
       const mg = g.append('g').attr('class', 'node sib-member').attr('data-name', m.name).datum(m);
       mg.append('circle').attr('cx', ox).attr('cy', 0).attr('r', r)
         .attr('class', 'type-person' + (m.connType === 'family' ? ' connected-family' : m.connType === 'both' ? ' connected-both' : ''))
@@ -881,14 +534,26 @@ function buildGraph() {
         .attr('x', ox).attr('y', -(r + 4)).attr('text-anchor', 'middle').text(m.name);
       mg.on('mouseover', (event) => showTooltip(event, m))
         .on('mousemove', moveTooltip)
-        .on('mouseout', hideTooltip);
+        .on('mouseout', hideTooltip)
+        .on('dblclick', (event) => {
+          event.stopPropagation();
+          toggleIsolation(m.name);
+          // also unfix the group anchor if fixed
+          if (anchor.fx != null) { anchor.fx = null; anchor.fy = null; }
+        });
     });
   });
   groupSel.call(d3.drag()
     .on('start', (event, anchor) => { if (!event.active) simulation.alphaTarget(0.3).restart(); anchor.fx = anchor.x; anchor.fy = anchor.y; })
     .on('drag', (event, anchor) => { anchor.fx = event.x; anchor.fy = event.y; })
     .on('end', (event, anchor) => { if (!event.active) simulation.alphaTarget(0); }))
-    .on('dblclick', (event, anchor) => { event.stopPropagation(); anchor.fx = null; anchor.fy = null; });
+    .on('dblclick', (event, anchor) => {
+      event.stopPropagation();
+      // double-click on the bar / group background: clear isolation if active
+      if (isolatedName) clearIsolation();
+      // unfix
+      anchor.fx = null; anchor.fy = null;
+    });
   // ── Standalone nodes ────────────────────────────────────────────────────
   const nodeLayer = container.append('g').attr('id', 'nodes');
   nodeSel = nodeLayer.selectAll('g')
@@ -899,14 +564,19 @@ function buildGraph() {
       .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
       .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
       .on('end', (event, d) => { if (!event.active) simulation.alphaTarget(0); }))
-    .on('dblclick', (event, d) => { event.stopPropagation(); d.fx = null; d.fy = null; })
+    .on('dblclick', (event, d) => {
+      event.stopPropagation();
+      toggleIsolation(d.name);
+      // also unfix
+      d.fx = null; d.fy = null;
+    })
     .on('mouseover', showTooltip).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
   nodeSel.append('circle')
-    .attr('r', d => 7 + (d.friendCount + d.familyCount) * 0.5)
+    .attr('r', d => nodeRadius(d))
     .attr('class', d => 'type-person' + (d.connType === 'family' ? ' connected-family' : d.connType === 'both' ? ' connected-both' : ''))
     .style('stroke', d => d.connType === 'both' ? 'url(#bothGrad)' : d.connType === 'family' ? '#d4a843' : d.connType === 'friend' ? '#3d8bcd' : '#444c56');
   nodeSel.append('text').attr('class', 'node-label')
-    .attr('y', d => -(7 + (d.friendCount + d.familyCount) * 0.5) - 4)
+    .attr('y', d => -(nodeRadius(d) + 4))
     .attr('text-anchor', 'middle').text(d => d.name);
   // ── Tick ────────────────────────────────────────────────────────────────
   simulation.on('tick', () => {
@@ -947,6 +617,8 @@ function buildGraph() {
   window._nodeByName = nodeByName;
   // Apply any existing visibility filters
   applyVisibilityFilters();
+  // Re-apply isolation if it was active (after rebuild it is cleared, but keep for safety)
+  if (isolatedName) applyIsolation(isolatedName);
 }
 // ── Visibility filters ──────────────────────────────────────────────────────
 function applyVisibilityFilters() {
@@ -980,6 +652,73 @@ function applyVisibilityFilters() {
       return !(edgeOn && nodesOn);
     });
   }
+  // If isolation is active, re-apply it so visibility + isolation stay consistent
+  if (isolatedName) applyIsolation(isolatedName);
+}
+// ── Isolation (double-click) ────────────────────────────────────────────────
+function getIsolationSet(name) {
+  const matchNames = new Set([name]);
+  // direct connections that are currently visible
+  edges.forEach(e => {
+    if (e.source === name && nodeVisible.get(e.target) !== false) matchNames.add(e.target);
+    if (e.target === name && nodeVisible.get(e.source) !== false) matchNames.add(e.source);
+  });
+  // include all siblings if this person is in a sibling group
+  const sim = window._nodeToSim?.get(name);
+  if (sim?.isGroup) {
+    sim.members.forEach(m => {
+      if (nodeVisible.get(m.name) !== false) matchNames.add(m.name);
+    });
+  }
+  return matchNames;
+}
+function applyIsolation(name) {
+  const matchNames = getIsolationSet(name);
+  if (nodeSel) {
+    nodeSel.classed('faded', n => !matchNames.has(n.name) || !nodeVisible.get(n.name));
+    // brief highlight on the focus node
+    nodeSel.filter(n => n.name === name).select('circle').classed('highlighted', true);
+  }
+  d3.selectAll('.sib-member').classed('faded', function() {
+    const n = this.getAttribute('data-name');
+    return !matchNames.has(n) || !nodeVisible.get(n);
+  });
+  // also highlight the circle of the isolated member if it is a sib-member
+  d3.selectAll('.sib-member').filter(function() {
+    return this.getAttribute('data-name') === name;
+  }).select('circle').classed('highlighted', true);
+  if (edgeSel) {
+    edgeSel.classed('faded', e => {
+      const key = [e.srcName, e.tgtName].sort().join('|||');
+      // keep edge only if both ends are in the isolation set and the edge is visible
+      return !(matchNames.has(e.srcName) && matchNames.has(e.tgtName) && edgeVisible.get(key) !== false);
+    });
+  }
+  if (relSel) {
+    relSel.style('opacity', e => {
+      const key = [e.srcName, e.tgtName].sort().join('|||');
+      return (matchNames.has(e.srcName) && matchNames.has(e.tgtName) && edgeVisible.get(key) !== false) ? 1 : 0.05;
+    });
+  }
+  // fade bridges that are not fully inside the set
+  if (bridgeSel) {
+    bridgeSel.classed('faded', d => !(matchNames.has(d.src.name) && matchNames.has(d.tgt.name)));
+  }
+}
+function clearIsolation() {
+  isolatedName = null;
+  // remove highlights
+  if (nodeSel) nodeSel.selectAll('circle').classed('highlighted', false);
+  d3.selectAll('.sib-member circle').classed('highlighted', false);
+  clearHighlight();
+}
+function toggleIsolation(name) {
+  if (isolatedName === name) {
+    clearIsolation();
+  } else {
+    isolatedName = name;
+    applyIsolation(name);
+  }
 }
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 function openSidebar(type) {
@@ -990,14 +729,22 @@ function openSidebar(type) {
   content.innerHTML = '';
   if (type === 'people') {
     title.textContent = `People (${nodes.length})`;
-    const sorted = [...nodes].sort((a, b) => a.name.localeCompare(b.name));
+    // Sort by current size metric (descending) then name
+    const score = n => {
+      if (sizeMetric === 'betweenness') return n.betweenness || 0;
+      if (sizeMetric === 'closeness') return n.closeness || 0;
+      if (sizeMetric === 'connections') return (n.friendCount || 0) + (n.familyCount || 0);
+      return n.degree || 0;
+    };
+    const sorted = [...nodes].sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
     sorted.forEach(n => {
       const item = document.createElement('div');
       item.className = 'sidebar-item';
       const checked = nodeVisible.get(n.name) !== false;
+      const meta = (n.degree != null ? n.degree + ' · ' : '') + (n.family || '');
       item.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''} data-name="${n.name}"/>
         <span class="item-label">${n.name}</span>
-        <span class="item-meta">${n.family || ''}</span>`;
+        <span class="item-meta">${meta}</span>`;
       item.querySelector('input').addEventListener('change', e => {
         nodeVisible.set(n.name, e.target.checked);
         applyVisibilityFilters();
@@ -1083,10 +830,16 @@ const tooltip = document.getElementById('tooltip');
 let ttTimer = null;
 function cancelHide() { clearTimeout(ttTimer); }
 function clearHighlight() {
+  // If isolation is active, do not fully clear – re-apply isolation instead
+  if (isolatedName) {
+    applyIsolation(isolatedName);
+    return;
+  }
   if (nodeSel) nodeSel.classed('faded', false);
   d3.selectAll('.sib-member').classed('faded', false);
   if (edgeSel) edgeSel.classed('faded', false);
   if (relSel) relSel.style('opacity', null);
+  if (bridgeSel) bridgeSel.classed('faded', false);
 }
 function scheduleHide() {
   ttTimer = setTimeout(() => { tooltip.classList.remove('visible'); clearHighlight(); }, 200);
@@ -1108,6 +861,15 @@ function showTooltip(event, d) {
   if (d.friendCount || d.familyCount)
     html += `<div class="tt-row"><span>Friendships</span><span>${d.friendCount}</span></div>
              <div class="tt-row"><span>Family ties</span><span>${d.familyCount}</span></div>`;
+  // Centrality metrics
+  if (d.degree != null) {
+    html += `<div class="tt-cent">
+      <div class="tt-row"><span>Degree</span><span>${d.degree}</span></div>
+      <div class="tt-row"><span>Betweenness</span><span>${(d.betweenness || 0).toFixed(1)}</span></div>
+      <div class="tt-row"><span>Closeness</span><span>${(d.closeness || 0).toFixed(3)}</span></div>
+      <div class="tt-row"><span>Norm. Deg</span><span>${((d.normDegree || 0) * 100).toFixed(0)}%</span></div>
+    </div>`;
+  }
   const sim = window._nodeToSim?.get(d.name);
   if (sim?.isGroup && sim.members.length > 1) {
     const sibs = sim.members.filter(m => m.name !== d.name).map(m => m.name).join(', ');
@@ -1121,8 +883,14 @@ function showTooltip(event, d) {
   tooltip.innerHTML = html;
   tooltip.classList.add('visible');
   positionTooltip(event.clientX, event.clientY);
+  // temporary hover highlight (respects isolation if active)
   const connNames = new Set(conns.map(e => e.source === d.name ? e.target : e.source));
   connNames.add(d.name);
+  // if isolation is on, further restrict to the isolation set
+  if (isolatedName) {
+    const iso = getIsolationSet(isolatedName);
+    for (const n of [...connNames]) if (!iso.has(n)) connNames.delete(n);
+  }
   if (nodeSel) nodeSel.classed('faded', n => !connNames.has(n.name) || !nodeVisible.get(n.name));
   d3.selectAll('.sib-member').classed('faded', function() {
     const name = this.getAttribute('data-name');
@@ -1175,6 +943,7 @@ function toggleSearch() {
 function doSearch(q) {
   const resultsEl = document.getElementById('search-results');
   if (!q || !q.trim()) {
+    // restoring full view: respect isolation if active
     clearHighlight();
     resultsEl.classList.remove('visible');
     resultsEl.innerHTML = '';
@@ -1194,7 +963,7 @@ function doSearch(q) {
     return;
   }
   // Build result list
-  resultsEl.innerHTML = matches.slice(0, 30).map(n => 
+  resultsEl.innerHTML = matches.slice(0, 30).map(n =>
     `<div class="search-result-item" data-name="${n.name}">${n.name}<span class="sr-family">${n.family || ''}</span></div>`
   ).join('');
   resultsEl.classList.add('visible');
@@ -1214,6 +983,11 @@ function doSearch(q) {
     if (matchNames.has(e.source) && nodeVisible.get(e.target)) matchNames.add(e.target);
     if (matchNames.has(e.target) && nodeVisible.get(e.source)) matchNames.add(e.source);
   });
+  // if isolation is active, intersect with isolation set
+  if (isolatedName) {
+    const iso = getIsolationSet(isolatedName);
+    for (const n of [...matchNames]) if (!iso.has(n)) matchNames.delete(n);
+  }
   if (nodeSel) nodeSel.classed('faded', n => !matchNames.has(n.name) || !nodeVisible.get(n.name));
   d3.selectAll('.sib-member').classed('faded', function() {
     const name = this.getAttribute('data-name');
@@ -1241,7 +1015,7 @@ function focusOnNode(name) {
   svg.transition().duration(600)
     .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   // Brief highlight
-  clearHighlight();
+  // (do not clear isolation – just zoom)
   const matchNames = new Set([name]);
   edges.forEach(e => {
     if (e.source === name) matchNames.add(e.target);
@@ -1250,7 +1024,12 @@ function focusOnNode(name) {
   if (nodeSel) {
     nodeSel.classed('faded', n => !matchNames.has(n.name));
     nodeSel.filter(n => n.name === name).select('circle').classed('highlighted', true);
-    setTimeout(() => nodeSel.selectAll('circle').classed('highlighted', false), 2000);
+    setTimeout(() => {
+      if (nodeSel) nodeSel.selectAll('circle').classed('highlighted', false);
+      // restore isolation if it was active
+      if (isolatedName) applyIsolation(isolatedName);
+      else clearHighlight();
+    }, 2000);
   }
   d3.selectAll('.sib-member').classed('faded', function() {
     return !matchNames.has(this.getAttribute('data-name'));
@@ -1264,13 +1043,21 @@ document.addEventListener('keydown', e => {
     const w = document.getElementById('search-wrap');
     if (w.style.display === 'block') toggleSearch();
     closeSidebar();
+    // also clear isolation on Escape
+    if (isolatedName) clearIsolation();
   }
 });
-// Close sidebar / search when clicking graph background
+// Close sidebar / search / isolation when clicking graph background
 svg.on('click', function(event) {
   if (event.target === svgEl) {
     closeSidebar();
     forceHideTooltip();
+  }
+});
+// Double-click empty space clears isolation
+svg.on('dblclick', function(event) {
+  if (event.target === svgEl) {
+    if (isolatedName) clearIsolation();
   }
 });
 // ── Zoom ────────────────────────────────────────────────────────────────────
