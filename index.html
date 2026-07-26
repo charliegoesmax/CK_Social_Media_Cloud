@@ -87,6 +87,18 @@
     display: flex;
     gap: 14px;
   }
+  .stats span {
+    cursor: pointer;
+    padding: 3px 6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+  .stats span:hover {
+    border-color: var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+  }
   .stats span b { color: var(--accent); }
   #graph-wrap {
     flex: 1;
@@ -116,6 +128,7 @@
     transition: opacity 0.2s;
   }
   .edge-friend.faded, .edge-family.faded { opacity: 0.08; }
+  .edge-friend.hidden-filter, .edge-family.hidden-filter { display: none !important; }
   /* ── Family bridge paths ── */
   .edge-bridge {
     stroke: #e05252;
@@ -166,9 +179,11 @@
   .node.hovered text.node-label { fill: var(--text); }
   .node.faded circle { opacity: 0.12; }
   .node.faded text { opacity: 0.08; }
+  .node.hidden-filter { display: none !important; }
   /* ── Sibling group bars ── */
   .sibling-group { cursor: grab; }
   .sibling-group:active { cursor: grabbing; }
+  .sibling-group.hidden-filter { display: none !important; }
   .sibling-bar-line {
     stroke: #3a4150;
     stroke-width: 2;
@@ -181,6 +196,7 @@
     fill: none;
   }
   .sib-member { cursor: pointer; }
+  .sib-member.hidden-filter { display: none !important; }
   /* ── Relationship labels ── */
   .rel-label-bg {
     fill: #1a1f2b;
@@ -198,6 +214,7 @@
     pointer-events: none;
     opacity: 0.9;
   }
+  .rel-label.hidden-filter { display: none !important; }
   /* ── Tooltip ── */
   #tooltip {
     position: absolute;
@@ -300,6 +317,36 @@
     width: 220px;
     outline: none;
   }
+  #search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  #search-results.visible { display: block; }
+  .search-result-item {
+    padding: 8px 14px;
+    font-size: 0.72rem;
+    color: var(--text);
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  .search-result-item:last-child { border-bottom: none; }
+  .search-result-item:hover { background: rgba(88,166,255,0.12); }
+  .search-result-item .sr-family {
+    color: var(--muted);
+    font-size: 0.6rem;
+    margin-left: 6px;
+  }
   /* ── Upload area ── */
   .upload-area {
     position: absolute;
@@ -355,6 +402,104 @@
     border: 1px solid transparent;
   }
   .reupload-btn:hover { border-color: var(--border); color: var(--text); }
+  /* ── Sidebar ── */
+  .sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 300px;
+    height: 100%;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .sidebar-header h3 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.05rem;
+    color: var(--text);
+  }
+  .sidebar-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .sidebar-close:hover { color: var(--text); background: var(--border); }
+  .sidebar-actions {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .sidebar-actions button {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 5px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .sidebar-actions button:hover { color: var(--text); border-color: var(--accent); }
+  .sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 16px;
+    font-size: 0.72rem;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .sidebar-item:hover { background: rgba(255,255,255,0.04); }
+  .sidebar-item input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .sidebar-item .item-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sidebar-item .item-meta {
+    font-size: 0.6rem;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .sidebar-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -365,7 +510,7 @@
   <h1>Connection <span>Network</span></h1>
   <div class="stats" id="stats"></div>
   <div class="legend">
-    <div class="legend-item active" id="tog-friend" onclick="toggleType('friend')">
+    <div class="legend-item" id="tog-friend" onclick="toggleType('friend')">
       <div class="legend-line friend"></div><span>Friend</span>
     </div>
     <div class="legend-item active" id="tog-family" onclick="toggleType('family')">
@@ -390,8 +535,20 @@
   </div>
   <div class="search-wrap" id="search-wrap">
     <input id="search-input" placeholder="Search person…" oninput="doSearch(this.value)" onkeydown="if(event.key==='Escape')toggleSearch()"/>
+    <div id="search-results"></div>
   </div>
-
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h3 id="sidebar-title">Items</h3>
+      <button class="sidebar-close" onclick="closeSidebar()">✕</button>
+    </div>
+    <div class="sidebar-actions">
+      <button onclick="sidebarSelectAll(true)">Select all</button>
+      <button onclick="sidebarSelectAll(false)">Deselect all</button>
+    </div>
+    <div class="sidebar-content" id="sidebar-content"></div>
+  </div>
   <!-- Upload overlay -->
   <div class="upload-area" id="upload-area">
     <div class="upload-box">
@@ -403,7 +560,6 @@
     </div>
   </div>
 </div>
-
 <script>
 // ── Parse matrix ────────────────────────────────────────────────────────────
 function parseMatrix(csv) {
@@ -412,21 +568,17 @@ function parseMatrix(csv) {
   const colNames = header.slice(1);
   const nodeSet = new Map();
   const edgeMap = new Map();
-
   function canonical(name) {
     return name.trim();
   }
-
   colNames.forEach(n => {
     const c = canonical(n);
     if (c && !nodeSet.has(c)) nodeSet.set(c, { name: c, friendCount: 0, familyCount: 0 });
   });
-
   for (let i = 1; i < lines.length; i++) {
     const rowName = canonical(lines[i].split(',')[0]);
     if (rowName && !nodeSet.has(rowName)) nodeSet.set(rowName, { name: rowName, friendCount: 0, familyCount: 0 });
   }
-
   for (let i = 1; i < lines.length; i++) {
     const cells = lines[i].split(',');
     const rowName = canonical(cells[0]);
@@ -451,10 +603,8 @@ function parseMatrix(csv) {
       }
     }
   }
-
   const nodes = Array.from(nodeSet.values());
   const edges = Array.from(edgeMap.values());
-
   edges.forEach(e => {
     const src = nodeSet.get(e.source);
     const tgt = nodeSet.get(e.target);
@@ -466,49 +616,46 @@ function parseMatrix(csv) {
       if (tgt) tgt.familyCount++;
     }
   });
-
   nodes.forEach(n => {
     if (n.familyCount > 0 && n.friendCount > 0) n.connType = 'both';
     else if (n.familyCount > 0) n.connType = 'family';
     else if (n.friendCount > 0) n.connType = 'friend';
     else n.connType = 'none';
   });
-
   return { nodes, edges };
 }
-
 // ── Globals that need to live across rebuilds ───────────────────────────────
 let nodes = [], edges = [];
 let simulation, edgeSel, bridgeSel, relSel, nodeSel, groupSel;
 let bridgeVisible = true;
-const visible = { friend: true, family: true };
+const visible = { friend: false, family: true }; // Friend OFF by default
+let nodeVisible = new Map(); // name -> bool
+let edgeVisible = new Map(); // 'a|||b' -> bool
+let currentSidebarType = null;
+let allFamilies = [];
+let allSibGroups = [];
+let friendEdgeList = [];
 const SGROUP_W = 68;
-
 const svgEl = document.getElementById('svg');
 const svg = d3.select(svgEl);
 const container = svg.append('g').attr('id', 'container');
 const zoomBehavior = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => container.attr('transform', e.transform));
 svg.call(zoomBehavior);
-
 const defs = svg.append('defs');
 const lg = defs.append('linearGradient').attr('id', 'bothGrad').attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '100%');
 lg.append('stop').attr('offset', '0%').attr('stop-color', '#58a6ff');
 lg.append('stop').attr('offset', '100%').attr('stop-color', '#d4a843');
-
 // ── File handling ───────────────────────────────────────────────────────────
 function showUpload() {
   document.getElementById('upload-area').classList.remove('hidden');
 }
-
 function hideUpload() {
   document.getElementById('upload-area').classList.add('hidden');
 }
-
 function handleFile(file) {
   if (!file) return;
   const reader = new FileReader();
   const isXlsx = /\.xlsx?$/i.test(file.name);
-
   reader.onload = e => {
     let csvText;
     if (isXlsx) {
@@ -522,23 +669,26 @@ function handleFile(file) {
       const parsed = parseMatrix(csvText);
       nodes = parsed.nodes;
       edges = parsed.edges;
+      // init visibility
+      nodeVisible = new Map(nodes.map(n => [n.name, true]));
+      edgeVisible = new Map(edges.map(e => {
+        const key = [e.source, e.target].sort().join('|||');
+        return [key, true];
+      }));
       buildGraph();
       hideUpload();
     } catch (err) {
       alert('Could not parse the file. Make sure it is a matrix CSV/XLSX with names in the first row and first column.\n\n' + err.message);
     }
   };
-
   if (isXlsx) reader.readAsArrayBuffer(file);
   else reader.readAsText(file);
 }
-
 // ── Full graph rebuild ──────────────────────────────────────────────────────
 function buildGraph() {
   // Clear previous visual elements
   container.selectAll('*').remove();
   if (simulation) simulation.stop();
-
   // ── Family name assignment ──────────────────────────────────────────────
   const wordFreq = new Map();
   nodes.forEach(n => {
@@ -554,7 +704,6 @@ function buildGraph() {
       ? ((wordFreq.get(prev) || 0) >= (wordFreq.get(last) || 0) ? prev : last)
       : last;
   });
-
   // ── BFS adjacency ───────────────────────────────────────────────────────
   const adjNames = new Map();
   nodes.forEach(n => adjNames.set(n.name, []));
@@ -562,7 +711,6 @@ function buildGraph() {
     adjNames.get(e.source)?.push(e.target);
     adjNames.get(e.target)?.push(e.source);
   });
-
   function bfsPath(startSet, targetSet) {
     const visited = new Set(startSet);
     const queue = [...startSet].map(n => [n]);
@@ -576,7 +724,6 @@ function buildGraph() {
     }
     return null;
   }
-
   // ── Family bridge MST ───────────────────────────────────────────────────
   const familyMap = new Map();
   nodes.forEach(n => {
@@ -584,6 +731,7 @@ function buildGraph() {
     familyMap.get(n.family).push(n.name);
   });
   const families = [...familyMap.keys()];
+  allFamilies = families.map(f => ({ name: f, members: familyMap.get(f) }));
   const familyPairs = [];
   for (let i = 0; i < families.length; i++)
     for (let j = i + 1; j < families.length; j++) {
@@ -609,7 +757,6 @@ function buildGraph() {
       }
     }
   });
-
   // ── Sibling groups ──────────────────────────────────────────────────────
   const SIB_RELS = new Set(['sibling', 'brother', 'sister']);
   const sibP = new Map(nodes.map(n => [n.name, n.name]));
@@ -626,7 +773,11 @@ function buildGraph() {
     if (!rawSibGroups.has(rep)) rawSibGroups.set(rep, []);
     rawSibGroups.get(rep).push(n);
   });
-
+  allSibGroups = [...rawSibGroups.values()].filter(m => m.length >= 2).map((members, idx) => ({
+    id: 'sib_' + idx,
+    members: members.map(m => m.name),
+    label: members.map(m => m.name.split(' ')[0]).join(', ')
+  }));
   const simNodes = [];
   const nodeToSim = new Map();
   const nodeByName = new Map(nodes.map(n => [n.name, n]));
@@ -649,11 +800,15 @@ function buildGraph() {
       nodeToSim.set(n.name, n);
     }
   });
-
   const rawEdges = edges
     .filter(e => !SIB_RELS.has(e.rel?.toLowerCase()))
     .map(e => ({ type: e.type, rel: e.rel, srcName: e.source, tgtName: e.target }));
-
+  friendEdgeList = edges.filter(e => e.type === 'friend').map(e => ({
+    key: [e.source, e.target].sort().join('|||'),
+    source: e.source,
+    target: e.target,
+    label: e.source + ' — ' + e.target
+  }));
   const simLinkKeys = new Set();
   const simLinks = [];
   rawEdges.forEach(e => {
@@ -665,17 +820,15 @@ function buildGraph() {
       simLinks.push({ source: ss.name, target: st.name });
     }
   });
-
   // ── Stats ───────────────────────────────────────────────────────────────
   const friendEdges = edges.filter(e => e.type === 'friend').length;
   const familyEdges = edges.filter(e => e.type === 'family').length;
-  const sibGroupCount = [...rawSibGroups.values()].filter(m => m.length >= 2).length;
+  const sibGroupCount = allSibGroups.length;
   document.getElementById('stats').innerHTML =
-    `<span><b>${nodes.length}</b> people</span>
-     <span><b>${families.length}</b> families</span>
-     <span><b>${sibGroupCount}</b> sibling groups</span>
-     <span><b>${friendEdges}</b> friendships</span>`;
-
+    `<span onclick="openSidebar('people')"><b>${nodes.length}</b> people</span>
+     <span onclick="openSidebar('families')"><b>${families.length}</b> families</span>
+     <span onclick="openSidebar('siblings')"><b>${sibGroupCount}</b> sibling groups</span>
+     <span onclick="openSidebar('friendships')"><b>${friendEdges}</b> friendships</span>`;
   // ── Simulation ──────────────────────────────────────────────────────────
   const { width, height } = svgEl.getBoundingClientRect();
   simulation = d3.forceSimulation(simNodes)
@@ -684,13 +837,11 @@ function buildGraph() {
     .force('center', d3.forceCenter(width / 2, height / 2))
     .force('collision', d3.forceCollide(d => d.isGroup ? ((d.members.length - 1) / 2 * SGROUP_W + 28) : 22))
     .alphaTarget(0);
-
   // ── Edges ───────────────────────────────────────────────────────────────
   const edgeLayer = container.append('g').attr('id', 'edges');
   edgeSel = edgeLayer.selectAll('line').data(rawEdges).enter().append('line')
     .attr('class', d => d.type === 'friend' ? 'edge-friend' : 'edge-family')
     .style('display', d => visible[d.type] ? null : 'none');
-
   // ── Bridges ─────────────────────────────────────────────────────────────
   const bridgeData = bridgeSegments.map(s => ({
     src: nodeByName.get(s.sN), tgt: nodeByName.get(s.tN)
@@ -699,7 +850,6 @@ function buildGraph() {
   bridgeSel = bridgeGroupEl.selectAll('line').data(bridgeData).enter().append('line')
     .attr('class', 'edge-bridge')
     .classed('hidden', !bridgeVisible);
-
   // ── Relationship labels ─────────────────────────────────────────────────
   const relLayer = container.append('g').attr('id', 'rel-labels');
   const familyRaw = rawEdges.filter(e => e.type === 'family');
@@ -707,13 +857,11 @@ function buildGraph() {
     .style('display', visible.family ? null : 'none');
   relSel.append('rect').attr('class', 'rel-label-bg').attr('rx', 3).attr('ry', 3);
   relSel.append('text').attr('class', 'rel-label-text').attr('dy', '0.35em').text(d => d.rel);
-
   // ── Sibling group bars ──────────────────────────────────────────────────
   const groupLayer = container.append('g').attr('id', 'groups');
   groupSel = groupLayer.selectAll('g')
     .data(simNodes.filter(n => n.isGroup))
     .enter().append('g').attr('class', 'sibling-group');
-
   groupSel.each(function(anchor) {
     const g = d3.select(this);
     const n = anchor.members.length;
@@ -736,13 +884,11 @@ function buildGraph() {
         .on('mouseout', hideTooltip);
     });
   });
-
   groupSel.call(d3.drag()
     .on('start', (event, anchor) => { if (!event.active) simulation.alphaTarget(0.3).restart(); anchor.fx = anchor.x; anchor.fy = anchor.y; })
     .on('drag', (event, anchor) => { anchor.fx = event.x; anchor.fy = event.y; })
     .on('end', (event, anchor) => { if (!event.active) simulation.alphaTarget(0); }))
     .on('dblclick', (event, anchor) => { event.stopPropagation(); anchor.fx = null; anchor.fy = null; });
-
   // ── Standalone nodes ────────────────────────────────────────────────────
   const nodeLayer = container.append('g').attr('id', 'nodes');
   nodeSel = nodeLayer.selectAll('g')
@@ -755,7 +901,6 @@ function buildGraph() {
       .on('end', (event, d) => { if (!event.active) simulation.alphaTarget(0); }))
     .on('dblclick', (event, d) => { event.stopPropagation(); d.fx = null; d.fy = null; })
     .on('mouseover', showTooltip).on('mousemove', moveTooltip).on('mouseout', hideTooltip);
-
   nodeSel.append('circle')
     .attr('r', d => 7 + (d.friendCount + d.familyCount) * 0.5)
     .attr('class', d => 'type-person' + (d.connType === 'family' ? ' connected-family' : d.connType === 'both' ? ' connected-both' : ''))
@@ -763,7 +908,6 @@ function buildGraph() {
   nodeSel.append('text').attr('class', 'node-label')
     .attr('y', d => -(7 + (d.friendCount + d.familyCount) * 0.5) - 4)
     .attr('text-anchor', 'middle').text(d => d.name);
-
   // ── Tick ────────────────────────────────────────────────────────────────
   simulation.on('tick', () => {
     simNodes.forEach(sim => {
@@ -798,11 +942,142 @@ function buildGraph() {
       .attr('x1', d => d.src.x).attr('y1', d => d.src.y)
       .attr('x2', d => d.tgt.x).attr('y2', d => d.tgt.y);
   });
-
   // Store nodeToSim for tooltip sibling info
   window._nodeToSim = nodeToSim;
+  window._nodeByName = nodeByName;
+  // Apply any existing visibility filters
+  applyVisibilityFilters();
 }
-
+// ── Visibility filters ──────────────────────────────────────────────────────
+function applyVisibilityFilters() {
+  // Nodes (standalone)
+  if (nodeSel) {
+    nodeSel.classed('hidden-filter', d => !nodeVisible.get(d.name));
+  }
+  // Sibling members
+  d3.selectAll('.sib-member').classed('hidden-filter', function() {
+    return !nodeVisible.get(this.getAttribute('data-name'));
+  });
+  // Sibling groups: hide whole group if all members hidden
+  if (groupSel) {
+    groupSel.classed('hidden-filter', d => d.members.every(m => !nodeVisible.get(m.name)));
+  }
+  // Edges
+  if (edgeSel) {
+    edgeSel.classed('hidden-filter', d => {
+      const key = [d.srcName, d.tgtName].sort().join('|||');
+      const edgeOn = edgeVisible.get(key) !== false;
+      const nodesOn = nodeVisible.get(d.srcName) && nodeVisible.get(d.tgtName);
+      return !(edgeOn && nodesOn);
+    });
+  }
+  // Rel labels
+  if (relSel) {
+    relSel.classed('hidden-filter', d => {
+      const key = [d.srcName, d.tgtName].sort().join('|||');
+      const edgeOn = edgeVisible.get(key) !== false;
+      const nodesOn = nodeVisible.get(d.srcName) && nodeVisible.get(d.tgtName);
+      return !(edgeOn && nodesOn);
+    });
+  }
+}
+// ── Sidebar ─────────────────────────────────────────────────────────────────
+function openSidebar(type) {
+  currentSidebarType = type;
+  const sidebar = document.getElementById('sidebar');
+  const title = document.getElementById('sidebar-title');
+  const content = document.getElementById('sidebar-content');
+  content.innerHTML = '';
+  if (type === 'people') {
+    title.textContent = `People (${nodes.length})`;
+    const sorted = [...nodes].sort((a, b) => a.name.localeCompare(b.name));
+    sorted.forEach(n => {
+      const item = document.createElement('div');
+      item.className = 'sidebar-item';
+      const checked = nodeVisible.get(n.name) !== false;
+      item.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''} data-name="${n.name}"/>
+        <span class="item-label">${n.name}</span>
+        <span class="item-meta">${n.family || ''}</span>`;
+      item.querySelector('input').addEventListener('change', e => {
+        nodeVisible.set(n.name, e.target.checked);
+        applyVisibilityFilters();
+      });
+      content.appendChild(item);
+    });
+  } else if (type === 'families') {
+    title.textContent = `Families (${allFamilies.length})`;
+    const sorted = [...allFamilies].sort((a, b) => a.name.localeCompare(b.name));
+    sorted.forEach(fam => {
+      const item = document.createElement('div');
+      item.className = 'sidebar-item';
+      // family is on if all members are visible
+      const allOn = fam.members.every(m => nodeVisible.get(m) !== false);
+      item.innerHTML = `<input type="checkbox" ${allOn ? 'checked' : ''} data-family="${fam.name}"/>
+        <span class="item-label">${fam.name}</span>
+        <span class="item-meta">${fam.members.length}</span>`;
+      item.querySelector('input').addEventListener('change', e => {
+        fam.members.forEach(m => nodeVisible.set(m, e.target.checked));
+        applyVisibilityFilters();
+        // refresh checkboxes if still open
+        openSidebar('families');
+      });
+      content.appendChild(item);
+    });
+  } else if (type === 'siblings') {
+    title.textContent = `Sibling Groups (${allSibGroups.length})`;
+    allSibGroups.forEach(g => {
+      const item = document.createElement('div');
+      item.className = 'sidebar-item';
+      const allOn = g.members.every(m => nodeVisible.get(m) !== false);
+      item.innerHTML = `<input type="checkbox" ${allOn ? 'checked' : ''} data-sib="${g.id}"/>
+        <span class="item-label">${g.label}</span>
+        <span class="item-meta">${g.members.length}</span>`;
+      item.querySelector('input').addEventListener('change', e => {
+        g.members.forEach(m => nodeVisible.set(m, e.target.checked));
+        applyVisibilityFilters();
+        openSidebar('siblings');
+      });
+      content.appendChild(item);
+    });
+  } else if (type === 'friendships') {
+    title.textContent = `Friendships (${friendEdgeList.length})`;
+    const sorted = [...friendEdgeList].sort((a, b) => a.label.localeCompare(b.label));
+    sorted.forEach(fe => {
+      const item = document.createElement('div');
+      item.className = 'sidebar-item';
+      const on = edgeVisible.get(fe.key) !== false;
+      item.innerHTML = `<input type="checkbox" ${on ? 'checked' : ''} data-key="${fe.key}"/>
+        <span class="item-label">${fe.label}</span>`;
+      item.querySelector('input').addEventListener('change', e => {
+        edgeVisible.set(fe.key, e.target.checked);
+        applyVisibilityFilters();
+      });
+      content.appendChild(item);
+    });
+  }
+  if (content.children.length === 0) {
+    content.innerHTML = '<div class="sidebar-empty">No items</div>';
+  }
+  sidebar.classList.add('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  currentSidebarType = null;
+}
+function sidebarSelectAll(on) {
+  if (!currentSidebarType) return;
+  if (currentSidebarType === 'people') {
+    nodes.forEach(n => nodeVisible.set(n.name, on));
+  } else if (currentSidebarType === 'families') {
+    allFamilies.forEach(fam => fam.members.forEach(m => nodeVisible.set(m, on)));
+  } else if (currentSidebarType === 'siblings') {
+    allSibGroups.forEach(g => g.members.forEach(m => nodeVisible.set(m, on)));
+  } else if (currentSidebarType === 'friendships') {
+    friendEdgeList.forEach(fe => edgeVisible.set(fe.key, on));
+  }
+  applyVisibilityFilters();
+  openSidebar(currentSidebarType); // refresh checkboxes
+}
 // ── Tooltip ─────────────────────────────────────────────────────────────────
 const tooltip = document.getElementById('tooltip');
 let ttTimer = null;
@@ -818,10 +1093,13 @@ function scheduleHide() {
 }
 tooltip.addEventListener('mouseenter', cancelHide);
 tooltip.addEventListener('mouseleave', scheduleHide);
-
 function showTooltip(event, d) {
   cancelHide();
-  const conns = edges.filter(e => e.source === d.name || e.target === d.name);
+  if (!nodeVisible.get(d.name)) return;
+  const conns = edges.filter(e => {
+    const key = [e.source, e.target].sort().join('|||');
+    return (e.source === d.name || e.target === d.name) && edgeVisible.get(key) !== false;
+  });
   const fam = conns.filter(e => e.type === 'family');
   const fri = conns.filter(e => e.type === 'friend');
   let html = `<div class="tt-close" onclick="forceHideTooltip()">✕</div>`;
@@ -843,15 +1121,22 @@ function showTooltip(event, d) {
   tooltip.innerHTML = html;
   tooltip.classList.add('visible');
   positionTooltip(event.clientX, event.clientY);
-
   const connNames = new Set(conns.map(e => e.source === d.name ? e.target : e.source));
   connNames.add(d.name);
-  if (nodeSel) nodeSel.classed('faded', n => !connNames.has(n.name));
-  d3.selectAll('.sib-member').classed('faded', function() { return !connNames.has(this.getAttribute('data-name')); });
-  if (edgeSel) edgeSel.classed('faded', e => !connNames.has(e.srcName) && !connNames.has(e.tgtName));
-  if (relSel) relSel.style('opacity', e => (connNames.has(e.srcName) || connNames.has(e.tgtName)) ? 1 : 0);
+  if (nodeSel) nodeSel.classed('faded', n => !connNames.has(n.name) || !nodeVisible.get(n.name));
+  d3.selectAll('.sib-member').classed('faded', function() {
+    const name = this.getAttribute('data-name');
+    return !connNames.has(name) || !nodeVisible.get(name);
+  });
+  if (edgeSel) edgeSel.classed('faded', e => {
+    const key = [e.srcName, e.tgtName].sort().join('|||');
+    return (!connNames.has(e.srcName) && !connNames.has(e.tgtName)) || edgeVisible.get(key) === false;
+  });
+  if (relSel) relSel.style('opacity', e => {
+    const key = [e.srcName, e.tgtName].sort().join('|||');
+    return ((connNames.has(e.srcName) || connNames.has(e.tgtName)) && edgeVisible.get(key) !== false) ? 1 : 0;
+  });
 }
-
 function positionTooltip(cx, cy) {
   const wrap = document.getElementById('graph-wrap').getBoundingClientRect();
   let x = cx - wrap.left + 16, y = cy - wrap.top - 10;
@@ -862,7 +1147,6 @@ function positionTooltip(cx, cy) {
 function moveTooltip(event) { if (!tooltip.matches(':hover')) positionTooltip(event.clientX, event.clientY); }
 function hideTooltip() { scheduleHide(); }
 function forceHideTooltip() { clearTimeout(ttTimer); tooltip.classList.remove('visible'); clearHighlight(); }
-
 // ── Toggles ─────────────────────────────────────────────────────────────────
 function toggleType(type) {
   visible[type] = !visible[type];
@@ -875,25 +1159,102 @@ function toggleBridge() {
   document.getElementById('tog-bridge').classList.toggle('active', bridgeVisible);
   if (bridgeSel) bridgeSel.classed('hidden', !bridgeVisible);
 }
-
 // ── Search ──────────────────────────────────────────────────────────────────
 function toggleSearch() {
   const w = document.getElementById('search-wrap');
   const open = w.style.display === 'block';
   w.style.display = open ? 'none' : 'block';
-  if (!open) document.getElementById('search-input').focus();
-  else { doSearch(''); document.getElementById('search-input').value = ''; }
+  if (!open) {
+    document.getElementById('search-input').focus();
+  } else {
+    doSearch('');
+    document.getElementById('search-input').value = '';
+    document.getElementById('search-results').classList.remove('visible');
+  }
 }
 function doSearch(q) {
-  if (!q) { clearHighlight(); return; }
-  const lq = q.toLowerCase();
-  const matchNames = new Set(nodes.filter(n => n.name.toLowerCase().includes(lq)).map(n => n.name));
-  edges.forEach(e => {
-    if (matchNames.has(e.source)) matchNames.add(e.target);
-    if (matchNames.has(e.target)) matchNames.add(e.source);
+  const resultsEl = document.getElementById('search-results');
+  if (!q || !q.trim()) {
+    clearHighlight();
+    resultsEl.classList.remove('visible');
+    resultsEl.innerHTML = '';
+    return;
+  }
+  const lq = q.toLowerCase().trim();
+  const matches = nodes.filter(n => n.name.toLowerCase().includes(lq) && nodeVisible.get(n.name) !== false);
+  if (matches.length === 0) {
+    resultsEl.innerHTML = '<div class="search-result-item" style="color:var(--muted);cursor:default">No matches</div>';
+    resultsEl.classList.add('visible');
+    // still fade non-matches for visual feedback
+    const matchNames = new Set();
+    if (nodeSel) nodeSel.classed('faded', n => !matchNames.has(n.name));
+    d3.selectAll('.sib-member').classed('faded', true);
+    if (edgeSel) edgeSel.classed('faded', true);
+    if (relSel) relSel.style('opacity', 0);
+    return;
+  }
+  // Build result list
+  resultsEl.innerHTML = matches.slice(0, 30).map(n => 
+    `<div class="search-result-item" data-name="${n.name}">${n.name}<span class="sr-family">${n.family || ''}</span></div>`
+  ).join('');
+  resultsEl.classList.add('visible');
+  // Attach click handlers
+  resultsEl.querySelectorAll('.search-result-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const name = el.getAttribute('data-name');
+      focusOnNode(name);
+      // keep search open but clear input? or leave
+      document.getElementById('search-input').value = name;
+      doSearch(name); // re-filter to just this + neighbors
+    });
   });
-  if (nodeSel) nodeSel.classed('faded', n => !matchNames.has(n.name));
-  d3.selectAll('.sib-member').classed('faded', function() { return !matchNames.has(this.getAttribute('data-name')); });
+  // Visual highlight: show matches + their neighbors
+  const matchNames = new Set(matches.map(n => n.name));
+  edges.forEach(e => {
+    if (matchNames.has(e.source) && nodeVisible.get(e.target)) matchNames.add(e.target);
+    if (matchNames.has(e.target) && nodeVisible.get(e.source)) matchNames.add(e.source);
+  });
+  if (nodeSel) nodeSel.classed('faded', n => !matchNames.has(n.name) || !nodeVisible.get(n.name));
+  d3.selectAll('.sib-member').classed('faded', function() {
+    const name = this.getAttribute('data-name');
+    return !matchNames.has(name) || !nodeVisible.get(name);
+  });
+  if (edgeSel) edgeSel.classed('faded', e => {
+    const key = [e.srcName, e.tgtName].sort().join('|||');
+    return (!matchNames.has(e.srcName) && !matchNames.has(e.tgtName)) || edgeVisible.get(key) === false;
+  });
+  if (relSel) relSel.style('opacity', e => {
+    const key = [e.srcName, e.tgtName].sort().join('|||');
+    return ((matchNames.has(e.srcName) || matchNames.has(e.tgtName)) && edgeVisible.get(key) !== false) ? 1 : 0;
+  });
+}
+function focusOnNode(name) {
+  const node = window._nodeByName?.get(name);
+  if (!node || node.x == null || node.y == null) return;
+  const { width, height } = svgEl.getBoundingClientRect();
+  // Current transform
+  const t = d3.zoomTransform(svgEl);
+  // Desired: center the node
+  const scale = Math.max(t.k, 1.2);
+  const tx = width / 2 - node.x * scale;
+  const ty = height / 2 - node.y * scale;
+  svg.transition().duration(600)
+    .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  // Brief highlight
+  clearHighlight();
+  const matchNames = new Set([name]);
+  edges.forEach(e => {
+    if (e.source === name) matchNames.add(e.target);
+    if (e.target === name) matchNames.add(e.source);
+  });
+  if (nodeSel) {
+    nodeSel.classed('faded', n => !matchNames.has(n.name));
+    nodeSel.filter(n => n.name === name).select('circle').classed('highlighted', true);
+    setTimeout(() => nodeSel.selectAll('circle').classed('highlighted', false), 2000);
+  }
+  d3.selectAll('.sib-member').classed('faded', function() {
+    return !matchNames.has(this.getAttribute('data-name'));
+  });
   if (edgeSel) edgeSel.classed('faded', e => !matchNames.has(e.srcName) && !matchNames.has(e.tgtName));
   if (relSel) relSel.style('opacity', e => (matchNames.has(e.srcName) || matchNames.has(e.tgtName)) ? 1 : 0);
 }
@@ -902,9 +1263,16 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const w = document.getElementById('search-wrap');
     if (w.style.display === 'block') toggleSearch();
+    closeSidebar();
   }
 });
-
+// Close sidebar / search when clicking graph background
+svg.on('click', function(event) {
+  if (event.target === svgEl) {
+    closeSidebar();
+    forceHideTooltip();
+  }
+});
 // ── Zoom ────────────────────────────────────────────────────────────────────
 function zoom(factor) { svg.transition().duration(300).call(zoomBehavior.scaleBy, factor); }
 function resetView() {
