@@ -32,20 +32,7 @@
       <select id="size-metric" onchange="setSizeMetric(this.value)">
         <option value="degree" selected title="Degree centrality: number of unique people this person is directly connected to. Simple neighbor count.">Degree</option>
         <option value="connections" title="Connections: total friend + family relationship entries for this person (original typed edge counts).">Connections</option>
-        <option value="eigenvector" title="Eigenvector centrality: A higher eigenvector centrality score usually means the person is connected to other people who themselves have high centrality.
-So it’s not 'how many connections you have,' but 'how connected you are to influential (central) others.'
-Why the most connected person can have a low eigenvector score
-
-A person can have many links (high degree) but still be 'less important' in eigenvector terms if:
-
-    their connections are mostly to low-centrality people, or
-    their connections are clustered in a part of the network that is not connected to the network’s core, or
-    they connect across the network in a way that doesn’t place them inside the high-eigenvector region.
-
-Eigenvector centrality is like a feedback process:
-your score ≈ sum of the scores of the people you’re connected to.
-
-So if your neighbors are mostly low-score, your score stays low—even if you have lots of neighbors.">Eigenvector</option>
+        <option value="eigenvector" title="c">Eigenvector</option>
       </select>
     </div>
     <div class="reupload-btn" onclick="showUpload()" title="Load another file">↻ Load file</div>
@@ -760,7 +747,7 @@ function openSidebar(type) {
       { key: 'name', label: 'Name', cls: '', title: 'Person name (click to sort)' },
       { key: 'degree', label: 'Deg', cls: 'th-num', title: 'Degree: number of unique direct neighbors' },
       { key: 'conn', label: 'Conn', cls: 'th-num', title: 'Connections: total friend + family relationship entries' },
-      { key: 'eig', label: 'Eig', cls: 'th-num', title: 'Eigenvector: influence based on connections to other central people' },
+      { key: 'eig', label: 'Eig', cls: 'th-num', title: 'Eigenvector: influence based on connections to other central people, hover option in upper right for further explanation.' },
       { key: 'family', label: 'Family', cls: '', title: 'Detected family surname' }
     ];
     cols.forEach(c => {
