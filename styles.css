@@ -397,7 +397,7 @@ svg:active { cursor: grabbing; }
   position: absolute;
   top: 0;
   left: 0;
-  width: 300px;
+  width: 440px;
   height: 100%;
   background: var(--surface);
   border-right: 1px solid var(--border);
@@ -484,6 +484,49 @@ svg:active { cursor: grabbing; }
   color: var(--muted);
   flex-shrink: 0;
 }
+/* People table layout */
+.sidebar-item.people-row {
+  display: grid;
+  grid-template-columns: 18px 1.5fr 40px 40px 48px 0.85fr;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.68rem;
+  border-bottom: 1px solid rgba(48,54,61,0.35);
+}
+.sidebar-item.people-row .item-label {
+  flex: unset;
+}
+.sidebar-item.people-row .item-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.sidebar-item.people-row .item-meta {
+  font-size: 0.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-table-header {
+  display: grid;
+  grid-template-columns: 18px 1.5fr 40px 40px 48px 0.85fr;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 0.58rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+.sidebar-table-header span[title] {
+  cursor: help;
+  border-bottom: 1px dotted var(--border);
+}
+.sidebar-table-header .th-num {
+  text-align: right;
+}
 .sidebar-empty {
   padding: 20px;
   text-align: center;
@@ -493,3 +536,36 @@ svg:active { cursor: grabbing; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Size-by control ── */
+.size-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+.size-control select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  padding: 3px 6px;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+.size-control select:hover { border-color: var(--accent); }
+.size-control select:focus { border-color: var(--accent); }
+
+/* ── Centrality in tooltip ── */
+#tooltip .tt-cent {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+}
+#tooltip .tt-cent .tt-row { margin-top: 1px; }
