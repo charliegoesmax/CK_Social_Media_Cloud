@@ -27,13 +27,12 @@
     <div class="legend-item" id="tog-search" onclick="toggleSearch()" title="Search (/)">
       <span>⌕ Search</span>
     </div>
-    <div class="size-control" title="Node size metric">
-      <span>Size</span>
+    <div class="size-control">
+      <span title="Controls how large each person appears in the graph">Size</span>
       <select id="size-metric" onchange="setSizeMetric(this.value)">
-        <option value="degree" selected>Degree</option>
-        <option value="betweenness">Betweenness</option>
-        <option value="closeness">Closeness</option>
-        <option value="connections">Connections</option>
+        <option value="degree" selected title="Degree centrality: number of unique people this person is directly connected to. Simple neighbor count.">Degree</option>
+        <option value="connections" title="Connections: total friend + family relationship entries for this person (original typed edge counts).">Connections</option>
+        <option value="eigenvector" title="Eigenvector centrality: influence score. High when connected to other highly-connected people (PageRank is a close relative).">Eigenvector</option>
       </select>
     </div>
     <div class="reupload-btn" onclick="showUpload()" title="Load another file">↻ Load file</div>
@@ -150,7 +149,7 @@ let allFamilies = [];
 let allSibGroups = [];
 let friendEdgeList = [];
 let isolatedName = null; // null = no isolation
-let sizeMetric = 'degree'; // degree | betweenness | closeness | connections
+let sizeMetric = 'degree'; // degree | connections | eigenvector
 const SGROUP_W = 68;
 const svgEl = document.getElementById('svg');
 const svg = d3.select(svgEl);
@@ -213,7 +212,7 @@ function cleanNameParts(name) {
   parts = parts.filter(p => !/^\d+$/.test(p) && /[A-Za-z]/.test(p));
   return parts;
 }
-// ── Centrality metrics (degree, betweenness, closeness) ─────────────────────
+// ── Centrality metrics (degree, connections, eigenvector) ───────────────────
 function computeCentralities() {
   const n = nodes.length;
   if (n === 0) return;
@@ -227,74 +226,39 @@ function computeCentralities() {
       adj[j].push(i);
     }
   });
-  // Degree (unique neighbors)
+  // Degree = unique neighbors
   nodes.forEach((nd, i) => {
     nd.degree = adj[i].length;
   });
-  // Brandes betweenness + closeness via BFS from every source
-  const betweenness = new Array(n).fill(0);
-  const closeness = new Array(n).fill(0);
-  for (let s = 0; s < n; s++) {
-    const dist = new Array(n).fill(-1);
-    const sigma = new Array(n).fill(0);
-    const pred = Array.from({ length: n }, () => []);
-    const queue = [s];
-    dist[s] = 0;
-    sigma[s] = 1;
-    let qi = 0;
-    while (qi < queue.length) {
-      const v = queue[qi++];
-      for (const w of adj[v]) {
-        if (dist[w] < 0) {
-          dist[w] = dist[v] + 1;
-          queue.push(w);
-        }
-        if (dist[w] === dist[v] + 1) {
-          sigma[w] += sigma[v];
-          pred[w].push(v);
-        }
-      }
-    }
-    // Closeness = reachable / sum(distances)  (higher = more central)
-    let sumDist = 0, reachable = 0;
+  // Eigenvector centrality via power iteration
+  // Score is high when connected to other high-scoring people
+  let scores = new Array(n).fill(1 / Math.sqrt(n));
+  const MAX_ITER = 80;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    const next = new Array(n).fill(0);
     for (let i = 0; i < n; i++) {
-      if (dist[i] > 0) {
-        sumDist += dist[i];
-        reachable++;
-      }
+      for (const j of adj[i]) next[j] += scores[i];
     }
-    closeness[s] = (reachable > 0 && sumDist > 0) ? (reachable / sumDist) : 0;
-    // Brandes dependency accumulation
-    const delta = new Array(n).fill(0);
-    for (let i = queue.length - 1; i >= 0; i--) {
-      const w = queue[i];
-      for (const v of pred[w]) {
-        if (sigma[w] > 0) delta[v] += (sigma[v] / sigma[w]) * (1 + delta[w]);
-      }
-      if (w !== s) betweenness[w] += delta[w];
-    }
+    let norm = 0;
+    for (let i = 0; i < n; i++) norm += next[i] * next[i];
+    norm = Math.sqrt(norm) || 1;
+    for (let i = 0; i < n; i++) scores[i] = next[i] / norm;
   }
-  // Undirected: each pair counted twice
-  for (let i = 0; i < n; i++) betweenness[i] /= 2;
-  // Normalize to [0,1] for sizing
-  const maxB = Math.max(...betweenness, 1e-12);
-  const maxC = Math.max(...closeness, 1e-12);
+  // Normalize for sizing + store raw values
   const maxD = Math.max(...nodes.map(nd => nd.degree), 1);
+  const maxConn = Math.max(...nodes.map(nd => (nd.friendCount || 0) + (nd.familyCount || 0)), 1);
+  const maxE = Math.max(...scores, 1e-12);
   nodes.forEach((nd, i) => {
-    nd.betweenness = betweenness[i];
-    nd.closeness = closeness[i];
-    nd.normBetweenness = betweenness[i] / maxB;
-    nd.normCloseness = closeness[i] / maxC;
+    nd.eigenvector = scores[i];
     nd.normDegree = nd.degree / maxD;
-    // "connections" keeps the old heuristic (friend + family counts, may count multi-edges? but we deduped)
-    nd.normConnections = Math.min(1, (nd.friendCount + nd.familyCount) / Math.max(maxD * 1.5, 1));
+    nd.normConnections = ((nd.friendCount || 0) + (nd.familyCount || 0)) / maxConn;
+    nd.normEigenvector = scores[i] / maxE;
   });
 }
 function nodeRadius(d) {
   const base = 7;
   let score = 0;
-  if (sizeMetric === 'betweenness') score = d.normBetweenness || 0;
-  else if (sizeMetric === 'closeness') score = d.normCloseness || 0;
+  if (sizeMetric === 'eigenvector') score = d.normEigenvector || 0;
   else if (sizeMetric === 'connections') score = d.normConnections || 0;
   else score = d.normDegree || 0; // degree default
   // map [0,1] → radius range ~7–22
@@ -729,22 +693,36 @@ function openSidebar(type) {
   content.innerHTML = '';
   if (type === 'people') {
     title.textContent = `People (${nodes.length})`;
+    // Column header with tooltips
+    const header = document.createElement('div');
+    header.className = 'sidebar-table-header';
+    header.innerHTML = `
+      <span></span>
+      <span>Name</span>
+      <span class="th-num" title="Degree: number of unique direct neighbors">Deg</span>
+      <span class="th-num" title="Connections: total friend + family relationship entries">Conn</span>
+      <span class="th-num" title="Eigenvector: influence based on connections to other central people">Eig</span>
+      <span title="Detected family surname">Family</span>`;
+    content.appendChild(header);
     // Sort by current size metric (descending) then name
     const score = n => {
-      if (sizeMetric === 'betweenness') return n.betweenness || 0;
-      if (sizeMetric === 'closeness') return n.closeness || 0;
+      if (sizeMetric === 'eigenvector') return n.eigenvector || 0;
       if (sizeMetric === 'connections') return (n.friendCount || 0) + (n.familyCount || 0);
       return n.degree || 0;
     };
     const sorted = [...nodes].sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
     sorted.forEach(n => {
       const item = document.createElement('div');
-      item.className = 'sidebar-item';
+      item.className = 'sidebar-item people-row';
       const checked = nodeVisible.get(n.name) !== false;
-      const meta = (n.degree != null ? n.degree + ' · ' : '') + (n.family || '');
+      const conn = (n.friendCount || 0) + (n.familyCount || 0);
+      const eig = (n.eigenvector != null) ? n.eigenvector.toFixed(2) : '–';
       item.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''} data-name="${n.name}"/>
         <span class="item-label">${n.name}</span>
-        <span class="item-meta">${meta}</span>`;
+        <span class="item-num">${n.degree ?? '–'}</span>
+        <span class="item-num">${conn}</span>
+        <span class="item-num">${eig}</span>
+        <span class="item-meta">${n.family || ''}</span>`;
       item.querySelector('input').addEventListener('change', e => {
         nodeVisible.set(n.name, e.target.checked);
         applyVisibilityFilters();
@@ -863,11 +841,12 @@ function showTooltip(event, d) {
              <div class="tt-row"><span>Family ties</span><span>${d.familyCount}</span></div>`;
   // Centrality metrics
   if (d.degree != null) {
+    const conn = (d.friendCount || 0) + (d.familyCount || 0);
     html += `<div class="tt-cent">
-      <div class="tt-row"><span>Degree</span><span>${d.degree}</span></div>
-      <div class="tt-row"><span>Betweenness</span><span>${(d.betweenness || 0).toFixed(1)}</span></div>
-      <div class="tt-row"><span>Closeness</span><span>${(d.closeness || 0).toFixed(3)}</span></div>
-      <div class="tt-row"><span>Norm. Deg</span><span>${((d.normDegree || 0) * 100).toFixed(0)}%</span></div>
+      <div class="tt-row"><span title="Unique direct neighbors">Degree</span><span>${d.degree}</span></div>
+      <div class="tt-row"><span title="Friend + family relationship counts">Connections</span><span>${conn}</span></div>
+      <div class="tt-row"><span title="Influence via well-connected neighbors">Eigenvector</span><span>${(d.eigenvector || 0).toFixed(3)}</span></div>
+      <div class="tt-row"><span title="Degree relative to the highest in the network">Norm. Deg</span><span>${((d.normDegree || 0) * 100).toFixed(0)}%</span></div>
     </div>`;
   }
   const sim = window._nodeToSim?.get(d.name);
