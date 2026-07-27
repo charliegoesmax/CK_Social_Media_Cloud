@@ -61,6 +61,7 @@
       <button onclick="sidebarSelectAll(false)">Deselect all</button>
     </div>
     <div class="sidebar-content" id="sidebar-content"></div>
+    <div class="sidebar-resize-handle" id="sidebar-resize"></div>
   </div>
   <!-- Upload overlay -->
   <div class="upload-area" id="upload-area">
@@ -150,6 +151,7 @@ let allSibGroups = [];
 let friendEdgeList = [];
 let isolatedName = null; // null = no isolation
 let sizeMetric = 'degree'; // degree | connections | eigenvector
+let peopleSort = { key: 'name', dir: 1 }; // dir: 1 asc, -1 desc
 const SGROUP_W = 68;
 const svgEl = document.getElementById('svg');
 const svg = d3.select(svgEl);
@@ -582,7 +584,10 @@ function buildGraph() {
   // Apply any existing visibility filters
   applyVisibilityFilters();
   // Re-apply isolation if it was active (after rebuild it is cleared, but keep for safety)
-  if (isolatedName) applyIsolation(isolatedName);
+  if (isolatedName) {
+    if (isolatedName === '__set__' && isolatedSet) applyIsolationVisual(isolatedSet, isolatedSet);
+    else applyIsolation(isolatedName);
+  }
 }
 // ── Visibility filters ──────────────────────────────────────────────────────
 function applyVisibilityFilters() {
@@ -617,44 +622,52 @@ function applyVisibilityFilters() {
     });
   }
   // If isolation is active, re-apply it so visibility + isolation stay consistent
-  if (isolatedName) applyIsolation(isolatedName);
+  if (isolatedName) {
+    if (isolatedName === '__set__' && isolatedSet) applyIsolationVisual(isolatedSet, isolatedSet);
+    else applyIsolation(isolatedName);
+  }
 }
 // ── Isolation (double-click) ────────────────────────────────────────────────
-function getIsolationSet(name) {
-  const matchNames = new Set([name]);
-  // direct connections that are currently visible
+let isolatedSet = null; // Set of names when multi-isolation is active
+function expandWithNeighbors(seedNames) {
+  const matchNames = new Set(seedNames);
   edges.forEach(e => {
-    if (e.source === name && nodeVisible.get(e.target) !== false) matchNames.add(e.target);
-    if (e.target === name && nodeVisible.get(e.source) !== false) matchNames.add(e.source);
+    if (matchNames.has(e.source) && nodeVisible.get(e.target) !== false) matchNames.add(e.target);
+    if (matchNames.has(e.target) && nodeVisible.get(e.source) !== false) matchNames.add(e.source);
   });
-  // include all siblings if this person is in a sibling group
-  const sim = window._nodeToSim?.get(name);
-  if (sim?.isGroup) {
-    sim.members.forEach(m => {
-      if (nodeVisible.get(m.name) !== false) matchNames.add(m.name);
-    });
-  }
+  // also pull in sibling groups of any seed member
+  seedNames.forEach(name => {
+    const sim = window._nodeToSim?.get(name);
+    if (sim?.isGroup) {
+      sim.members.forEach(m => {
+        if (nodeVisible.get(m.name) !== false) matchNames.add(m.name);
+      });
+    }
+  });
   return matchNames;
 }
-function applyIsolation(name) {
-  const matchNames = getIsolationSet(name);
+function getIsolationSet(name) {
+  if (isolatedSet) return isolatedSet;
+  return expandWithNeighbors([name]);
+}
+function applyIsolationVisual(matchNames, highlightNames) {
+  const hl = highlightNames || matchNames;
   if (nodeSel) {
     nodeSel.classed('faded', n => !matchNames.has(n.name) || !nodeVisible.get(n.name));
-    // brief highlight on the focus node
-    nodeSel.filter(n => n.name === name).select('circle').classed('highlighted', true);
+    nodeSel.selectAll('circle').classed('highlighted', false);
+    nodeSel.filter(n => hl.has(n.name)).select('circle').classed('highlighted', true);
   }
   d3.selectAll('.sib-member').classed('faded', function() {
     const n = this.getAttribute('data-name');
     return !matchNames.has(n) || !nodeVisible.get(n);
   });
-  // also highlight the circle of the isolated member if it is a sib-member
+  d3.selectAll('.sib-member').select('circle').classed('highlighted', false);
   d3.selectAll('.sib-member').filter(function() {
-    return this.getAttribute('data-name') === name;
+    return hl.has(this.getAttribute('data-name'));
   }).select('circle').classed('highlighted', true);
   if (edgeSel) {
     edgeSel.classed('faded', e => {
       const key = [e.srcName, e.tgtName].sort().join('|||');
-      // keep edge only if both ends are in the isolation set and the edge is visible
       return !(matchNames.has(e.srcName) && matchNames.has(e.tgtName) && edgeVisible.get(key) !== false);
     });
   }
@@ -664,14 +677,23 @@ function applyIsolation(name) {
       return (matchNames.has(e.srcName) && matchNames.has(e.tgtName) && edgeVisible.get(key) !== false) ? 1 : 0.05;
     });
   }
-  // fade bridges that are not fully inside the set
   if (bridgeSel) {
     bridgeSel.classed('faded', d => !(matchNames.has(d.src.name) && matchNames.has(d.tgt.name)));
   }
 }
+function applyIsolation(name) {
+  isolatedSet = null;
+  const matchNames = expandWithNeighbors([name]);
+  applyIsolationVisual(matchNames, new Set([name]));
+}
+function isolateNames(seedNames, highlightNames) {
+  isolatedName = '__set__';
+  isolatedSet = expandWithNeighbors(seedNames);
+  applyIsolationVisual(isolatedSet, highlightNames || new Set(seedNames));
+}
 function clearIsolation() {
   isolatedName = null;
-  // remove highlights
+  isolatedSet = null;
   if (nodeSel) nodeSel.selectAll('circle').classed('highlighted', false);
   d3.selectAll('.sib-member circle').classed('highlighted', false);
   clearHighlight();
@@ -681,8 +703,32 @@ function toggleIsolation(name) {
     clearIsolation();
   } else {
     isolatedName = name;
+    isolatedSet = null;
     applyIsolation(name);
   }
+}
+function zoomToNodes(names, padding = 60) {
+  const pts = [];
+  names.forEach(name => {
+    const n = window._nodeByName?.get(name);
+    if (n && n.x != null && n.y != null) pts.push(n);
+  });
+  if (pts.length === 0) return;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  pts.forEach(p => {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  });
+  const { width, height } = svgEl.getBoundingClientRect();
+  const bw = Math.max(maxX - minX, 40);
+  const bh = Math.max(maxY - minY, 40);
+  const scale = Math.min(2.5, Math.max(0.4, 0.85 * Math.min(width / (bw + padding * 2), height / (bh + padding * 2))));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const tx = width / 2 - cx * scale;
+  const ty = height / 2 - cy * scale;
+  svg.transition().duration(650)
+    .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
 }
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 function openSidebar(type) {
@@ -693,24 +739,46 @@ function openSidebar(type) {
   content.innerHTML = '';
   if (type === 'people') {
     title.textContent = `People (${nodes.length})`;
-    // Column header with tooltips
+    // Sticky column header
     const header = document.createElement('div');
     header.className = 'sidebar-table-header';
-    header.innerHTML = `
-      <span></span>
-      <span>Name</span>
-      <span class="th-num" title="Degree: number of unique direct neighbors">Deg</span>
-      <span class="th-num" title="Connections: total friend + family relationship entries">Conn</span>
-      <span class="th-num" title="Eigenvector: influence based on connections to other central people">Eig</span>
-      <span title="Detected family surname">Family</span>`;
+    const cols = [
+      { key: null, label: '', cls: '', title: '' },
+      { key: 'name', label: 'Name', cls: '', title: 'Person name (click to sort)' },
+      { key: 'degree', label: 'Deg', cls: 'th-num', title: 'Degree: number of unique direct neighbors' },
+      { key: 'conn', label: 'Conn', cls: 'th-num', title: 'Connections: total friend + family relationship entries' },
+      { key: 'eig', label: 'Eig', cls: 'th-num', title: 'Eigenvector: influence based on connections to other central people' },
+      { key: 'family', label: 'Family', cls: '', title: 'Detected family surname' }
+    ];
+    cols.forEach(c => {
+      const sp = document.createElement('span');
+      if (c.cls) sp.className = c.cls;
+      if (c.title) sp.title = c.title;
+      sp.textContent = c.label;
+      if (c.key) {
+        if (peopleSort.key === c.key) sp.classList.add(peopleSort.dir === 1 ? 'sorted-asc' : 'sorted-desc');
+        sp.addEventListener('click', () => {
+          if (peopleSort.key === c.key) peopleSort.dir *= -1;
+          else { peopleSort.key = c.key; peopleSort.dir = (c.key === 'name' || c.key === 'family') ? 1 : -1; }
+          openSidebar('people');
+        });
+      }
+      header.appendChild(sp);
+    });
     content.appendChild(header);
-    // Sort by current size metric (descending) then name
-    const score = n => {
-      if (sizeMetric === 'eigenvector') return n.eigenvector || 0;
-      if (sizeMetric === 'connections') return (n.friendCount || 0) + (n.familyCount || 0);
-      return n.degree || 0;
+    // Sort
+    const val = n => {
+      if (peopleSort.key === 'degree') return n.degree || 0;
+      if (peopleSort.key === 'conn') return (n.friendCount || 0) + (n.familyCount || 0);
+      if (peopleSort.key === 'eig') return n.eigenvector || 0;
+      if (peopleSort.key === 'family') return (n.family || '').toLowerCase();
+      return (n.name || '').toLowerCase();
     };
-    const sorted = [...nodes].sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
+    const sorted = [...nodes].sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (typeof va === 'string') return peopleSort.dir * va.localeCompare(vb);
+      return peopleSort.dir * (va - vb) || a.name.localeCompare(b.name);
+    });
     sorted.forEach(n => {
       const item = document.createElement('div');
       item.className = 'sidebar-item people-row';
@@ -727,6 +795,12 @@ function openSidebar(type) {
         nodeVisible.set(n.name, e.target.checked);
         applyVisibilityFilters();
       });
+      item.addEventListener('dblclick', e => {
+        if (e.target.tagName === 'INPUT') return;
+        e.preventDefault();
+        toggleIsolation(n.name);
+        zoomToNodes([n.name]);
+      });
       content.appendChild(item);
     });
   } else if (type === 'families') {
@@ -735,7 +809,6 @@ function openSidebar(type) {
     sorted.forEach(fam => {
       const item = document.createElement('div');
       item.className = 'sidebar-item';
-      // family is on if all members are visible
       const allOn = fam.members.every(m => nodeVisible.get(m) !== false);
       item.innerHTML = `<input type="checkbox" ${allOn ? 'checked' : ''} data-family="${fam.name}"/>
         <span class="item-label">${fam.name}</span>
@@ -743,8 +816,13 @@ function openSidebar(type) {
       item.querySelector('input').addEventListener('change', e => {
         fam.members.forEach(m => nodeVisible.set(m, e.target.checked));
         applyVisibilityFilters();
-        // refresh checkboxes if still open
         openSidebar('families');
+      });
+      item.addEventListener('dblclick', e => {
+        if (e.target.tagName === 'INPUT') return;
+        e.preventDefault();
+        isolateNames(fam.members, new Set(fam.members));
+        zoomToNodes(fam.members);
       });
       content.appendChild(item);
     });
@@ -762,6 +840,12 @@ function openSidebar(type) {
         applyVisibilityFilters();
         openSidebar('siblings');
       });
+      item.addEventListener('dblclick', e => {
+        if (e.target.tagName === 'INPUT') return;
+        e.preventDefault();
+        isolateNames(g.members, new Set(g.members));
+        zoomToNodes(g.members);
+      });
       content.appendChild(item);
     });
   } else if (type === 'friendships') {
@@ -776,6 +860,13 @@ function openSidebar(type) {
       item.querySelector('input').addEventListener('change', e => {
         edgeVisible.set(fe.key, e.target.checked);
         applyVisibilityFilters();
+      });
+      item.addEventListener('dblclick', e => {
+        if (e.target.tagName === 'INPUT') return;
+        e.preventDefault();
+        const pair = [fe.source, fe.target];
+        isolateNames(pair, new Set(pair));
+        zoomToNodes(pair);
       });
       content.appendChild(item);
     });
@@ -810,7 +901,11 @@ function cancelHide() { clearTimeout(ttTimer); }
 function clearHighlight() {
   // If isolation is active, do not fully clear – re-apply isolation instead
   if (isolatedName) {
-    applyIsolation(isolatedName);
+    if (isolatedName === '__set__' && isolatedSet) {
+      applyIsolationVisual(isolatedSet, isolatedSet);
+    } else {
+      applyIsolation(isolatedName);
+    }
     return;
   }
   if (nodeSel) nodeSel.classed('faded', false);
@@ -1045,6 +1140,34 @@ function resetView() {
   const { width, height } = svgEl.getBoundingClientRect();
   svg.transition().duration(500).call(zoomBehavior.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.9).translate(-width / 2, -height / 2));
 }
+// ── Sidebar resize ──────────────────────────────────────────────────────────
+(function initSidebarResize() {
+  const sidebar = document.getElementById('sidebar');
+  const handle = document.getElementById('sidebar-resize');
+  if (!sidebar || !handle) return;
+  let startX = 0, startW = 0;
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    startX = e.clientX;
+    startW = sidebar.getBoundingClientRect().width;
+    sidebar.classList.add('resizing');
+    document.body.style.cursor = 'col-resize';
+    const onMove = ev => {
+      const dx = ev.clientX - startX;
+      const newW = Math.max(280, Math.min(window.innerWidth * 0.8, startW + dx));
+      sidebar.style.width = newW + 'px';
+    };
+    const onUp = () => {
+      sidebar.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+})();
 </script>
 </body>
 </html>
